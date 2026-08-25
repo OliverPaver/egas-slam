@@ -16,6 +16,12 @@ namespace MiniSlamGraph
 	{
 	public:
 		typedef std::map<int, GraphNode*> NodeIndex;
+		enum RobustKernelType
+		{
+			ROBUST_NONE = 0,
+			ROBUST_HUBER = 1,
+			ROBUST_CAUCHY = 2
+		};
 
 		virtual ~GraphEdge(void) {}
 
@@ -23,6 +29,14 @@ namespace MiniSlamGraph
 		void setFromNodeId(int id) { idFrom = id; }
 		int toNodeId(void) const { return idTo; }
 		void setToNodeId(int id) { idTo = id; }
+		double getInformationWeight(void) const { return informationWeight; }
+		void setInformationWeight(double weight);
+		void setInformationDiagonal(const std::vector<double> &diagonal);
+		void clearInformationDiagonal(void) { informationDiagonal.clear(); }
+		const std::vector<double>& getInformationDiagonal(void) const { return informationDiagonal; }
+		void setRobustKernel(RobustKernelType type, double scale);
+		RobustKernelType getRobustKernelType(void) const { return robustKernelType; }
+		double getRobustKernelScale(void) const { return robustKernelScale; }
 
 		virtual int getMeasureDimensions(void) const = 0;
 		virtual void setMeasurement(const double *v) = 0;
@@ -61,8 +75,11 @@ namespace MiniSlamGraph
 		virtual void computeGradientAndHessian(const NodeIndex & nodes, const ParameterIndex & index, VariableLengthVector & gradient, SparseBlockMatrix & hessian) const;
 
 	private:
-		int idFrom, idTo;
+		int idFrom = -1, idTo = -1;
+		double informationWeight = 1.0;
+		std::vector<double> informationDiagonal;
+		RobustKernelType robustKernelType = ROBUST_NONE;
+		double robustKernelScale = 1.0;
 	};
 
 }
-

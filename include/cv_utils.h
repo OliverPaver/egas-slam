@@ -41,8 +41,15 @@ torch::Tensor imageToTensor(const cv::Mat &image);
 torch::Tensor depthToTensor(const cv::Mat &depth);
 
 ITMUChar4Image *imageToITMUChar4Image(const cv::Mat &image, MemoryDeviceType type = MEMORYDEVICE_CPU);
+void imageToITMUChar4Image(const cv::Mat &image, ITMUChar4Image &result, MemoryDeviceType type = MEMORYDEVICE_CPU);
+
+// Direct CPU tensor bridges used by streaming input. These avoid allocating
+// owning OpenCV intermediates and redundant full-resolution copies.
+void imageTensorToITMUChar4Image(const torch::Tensor &image, ITMUChar4Image &result);
 
 ITMShortImage *depthToITMUShortImage(const cv::Mat &depth, MemoryDeviceType type = MEMORYDEVICE_CPU);
+void depthToITMUShortImage(const cv::Mat &depth, ITMShortImage &result, MemoryDeviceType type = MEMORYDEVICE_CPU);
+void depthTensorToITMUShortImage(const torch::Tensor &depth, ITMShortImage &result, float millimetres_per_metre = 1000.0f);
 
 cv::Mat ITMUChar4ImageToImage(const ITMUChar4Image *itmu_image, MemoryDeviceType type = MEMORYDEVICE_CPU);
 

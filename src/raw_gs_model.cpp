@@ -1,4 +1,5 @@
 #include <c10/cuda/CUDACachingAllocator.h>
+#include <algorithm>
 
 #include "raw_gs_model.h"
 #include "tensor_math.h"
@@ -8,15 +9,17 @@ using namespace torch::autograd;
 
 // #define LOGFORWARDTIME
 
-void RawGaussianModel::loadConfig(const YAML::Node &config)
+void RawGaussianModel::loadConfig(const YAML::Node &config, bool verbose)
 {
-    std::cout << "loading Gaussian model parameters...";
+    if (verbose)
+        std::cout << "loading Gaussian model parameters...";
     this->config = config;
     // Gaussian setup
     render_method = config["render_method"].as<std::string>();
     maxSH = config["sh_degree"].as<int>();
     maxInitScale = config["max_init_scale"].as<float>();
     minInitScale = config["min_init_scale"].as<float>();
+    log_timing = config["log_timing"] ? config["log_timing"].as<bool>() : false;
 
     // 默认使用最大SH进行渲染和训练
     degreesToUse = maxSH;
@@ -36,7 +39,14 @@ void RawGaussianModel::loadConfig(const YAML::Node &config)
     // rendering set up
     max_gs_radii = config["max_gs_radii"].as<int>();
     delta_depth = config["delta_depth"].as<float>();
-    std::cout << "finish" << std::endl;
+    gesResidualScale = config["ges_residual_scale"]
+                           ? std::max(0.0f, config["ges_residual_scale"].as<float>())
+                           : 1.0f;
+    gesBaseColorWeight = config["ges_base_color_weight"]
+                             ? std::max(1e-6f, config["ges_base_color_weight"].as<float>())
+                             : 1.0f;
+    if (verbose)
+        std::cout << "finish" << std::endl;
 }
 
 // TODO: 目前只考虑一个相机的情况，相机维度使用unsqueeze()添加。如果有多相机需要修改
@@ -318,9 +328,11 @@ TensorDict RawGaussianModel::gesForward(const Camera &cam, const torch::Tensor &
     int64_t last_dim = render_colors.size(-1);
     torch::Tensor raw_rgb = render_colors.slice(-1, 0, last_dim - 1);
     torch::Tensor raw_depth = render_colors.slice(-1, last_dim - 1);
-    auto base_color_wight = 1.0f * torch::ones_like(weight_sums);
+    auto base_color_wight = gesBaseColorWeight * torch::ones_like(weight_sums);
     // base_color_wight.masked_fill_(ref_depth > 0, 1);
     torch::Tensor expected_rgb = (raw_rgb + base_color * base_color_wight) / (weight_sums + base_color_wight);
+    if (gesResidualScale != 1.0f)
+        expected_rgb = base_color + (expected_rgb - base_color) * gesResidualScale;
     auto base_depth_wight = 1.0f * torch::zeros_like(weight_sums);
     base_depth_wight.masked_fill_(ref_depth > 0, 1);
     torch::Tensor expected_depth = (raw_depth + ref_depth * base_depth_wight) / (weight_sums + base_depth_wight);
@@ -346,6 +358,9 @@ TensorDict RawGaussianModel::gesForward(const Camera &cam, const torch::Tensor &
     }
     res["depth"] = expected_depth[0];
     res["alpha"] = weight_sums[0];
+    res["gaussian_rgb_sum"] = raw_rgb[0];
+    res["gaussian_depth_sum"] = raw_depth[0];
+    res["gaussian_weight_sum"] = weight_sums[0];
     res["radiis"] = radiis[0];
     res["means2d"] = means2d; // 这里必须返回原tensor，切片操作会导致无法记录梯度
 #ifdef LOGFORWARDTIME
@@ -369,46 +384,73 @@ TensorDict RawGaussianModel::gesForward(const Camera &cam, const torch::Tensor &
 TensorDict RawGaussianModel::computeLoss(TensorDict &render_res, const Camera &cam, const YAML::Node &weight_configs, const torch::Tensor &mask)
 {
     torch::Tensor gt_rgb = cam.image.to(device);
-    torch::Tensor gt_depth = cam.depth.to(device);
     torch::Tensor rendered_rgb = render_res["rgb"];
     torch::Tensor rendered_depth = render_res["depth"];
-    torch::Tensor rendered_weight_sum = render_res["alpha"];
     // torch::Tensor valid_depth_mask = gt_depth > 0.2 & gt_depth < 3;
     torch::Tensor rgb_loss, l1_loss;
     if (mask.defined())
-        l1_loss = l1(gt_rgb.masked_select(mask), rendered_rgb.masked_select(mask));
+    {
+        const torch::Tensor rgb_mask = mask.to(device, torch::kBool);
+        const torch::Tensor selected_gt = gt_rgb.masked_select(rgb_mask);
+        l1_loss = selected_gt.numel() > 0
+                      ? l1(selected_gt, rendered_rgb.masked_select(rgb_mask))
+                      : rendered_rgb.sum() * 0.0f;
+    }
     else
         l1_loss = l1(gt_rgb, rendered_rgb);
 
     // torch::Tensor l1_loss = l1(gt_rgb.masked_select(valid_depth_mask), rendered_rgb.masked_select(valid_depth_mask));
 
-    float ssimWeight = weight_configs["ssim_weight"].as<float>();
+    const float ssimWeight = weight_configs && weight_configs["ssim_weight"]
+                                 ? weight_configs["ssim_weight"].as<float>()
+                                 : 0.0f;
     if (ssimWeight > 0)
     {
         float C1 = 0.01 * 0.01;
         float C2 = 0.03 * 0.03;
         std::string padding = "valid";
-        torch::Tensor ssimLoss = 1.0f - FusedSSIMMap::apply(C1,
-                                                            C2,
-                                                            rendered_rgb.permute({2, 0, 1}).unsqueeze(0),
-                                                            gt_rgb.permute({2, 0, 1}).unsqueeze(0),
-                                                            padding,
-                                                            true)
-                                            .mean();
+        torch::Tensor ssim_map = FusedSSIMMap::apply(C1,
+                                                     C2,
+                                                     rendered_rgb.permute({2, 0, 1}).unsqueeze(0),
+                                                     gt_rgb.permute({2, 0, 1}).unsqueeze(0),
+                                                     padding,
+                                                     true);
+        torch::Tensor ssimLoss;
+        if (mask.defined())
+        {
+            torch::Tensor spatial_mask = mask.to(device, torch::kBool);
+            if (spatial_mask.dim() == 3)
+                spatial_mask = spatial_mask.any(-1);
+            if (spatial_mask.dim() != 2 || spatial_mask.size(0) != gt_rgb.size(0) || spatial_mask.size(1) != gt_rgb.size(1))
+                throw std::runtime_error("RGB loss mask must broadcast from [H,W] or [H,W,C]");
+            spatial_mask = spatial_mask.slice(0, 5, -5).slice(1, 5, -5).unsqueeze(0).unsqueeze(0);
+            const torch::Tensor selected_ssim = ssim_map.masked_select(spatial_mask);
+            ssimLoss = selected_ssim.numel() > 0
+                           ? 1.0f - selected_ssim.mean()
+                           : rendered_rgb.sum() * 0.0f;
+        }
+        else
+            ssimLoss = 1.0f - ssim_map.mean();
         rgb_loss = (1.0f - ssimWeight) * l1_loss + ssimWeight * ssimLoss;
     }
     else
         rgb_loss = l1_loss;
 
-    float depth_weight = weight_configs["depth_weight"].as<float>();
+    const float depth_weight = weight_configs && weight_configs["depth_weight"]
+                                   ? weight_configs["depth_weight"].as<float>()
+                                   : 0.0f;
     TensorDict loss;
     loss["total"] = rgb_loss;
     loss["rgb"] = rgb_loss;
 
     if (depth_weight > 0 && cam.has_depth)
     {
+        torch::Tensor gt_depth = cam.depth.to(device);
         auto valid_depth_mask = (gt_depth > 0) & (rendered_depth > 0);
-        torch::Tensor depthLoss = l1(gt_depth.masked_select(valid_depth_mask), rendered_depth.masked_select(valid_depth_mask));
+        const torch::Tensor valid_gt_depth = gt_depth.masked_select(valid_depth_mask);
+        torch::Tensor depthLoss = valid_gt_depth.numel() > 0
+                                      ? l1(valid_gt_depth, rendered_depth.masked_select(valid_depth_mask))
+                                      : rendered_depth.sum() * 0.0f;
         loss["depth"] = depthLoss;
         loss["total"] += depth_weight * depthLoss;
     }
@@ -448,7 +490,7 @@ void RawGaussianModel::stepPostBackward(TensorDict &render_res, const Camera &ca
         {
             torch::Tensor new_opacities = torch::clamp_max(opt_gs_params.opacities, torch::logit(torch::tensor(reset_opacity_target)).item<float>()).detach().requires_grad_().to(device);
             // checkOpimizer(opacitiesOpt);
-            replaceToOptimizer(opacitiesOpt, new_opacities);
+            replaceToOptimizer(opacitiesOpt.get(), new_opacities);
             opt_gs_params.opacities = new_opacities;
             std::cout << "Alpha reset: " << reset_opacity_target << std::endl;
         }
@@ -568,20 +610,20 @@ void RawGaussianModel::densifiyGs(float scene_scale, int curr_iter)
                                0);
 
         torch::Tensor dupIdcs = torch::where(is_dupli)[0];
-        addToOptimizer(meansOpt, opt_gs_params.means, dupIdcs, 1);
-        addToOptimizer(scalesOpt, opt_gs_params.scales, dupIdcs, 1);
-        addToOptimizer(quatsOpt, opt_gs_params.quats, dupIdcs, 1);
-        addToOptimizer(featuresDcOpt, opt_gs_params.featuresDc, dupIdcs, 1);
-        addToOptimizer(featuresRestOpt, opt_gs_params.featuresRest, dupIdcs, 1);
-        addToOptimizer(opacitiesOpt, opt_gs_params.opacities, dupIdcs, 1);
+        addToOptimizer(meansOpt.get(), opt_gs_params.means, dupIdcs, 1);
+        addToOptimizer(scalesOpt.get(), opt_gs_params.scales, dupIdcs, 1);
+        addToOptimizer(quatsOpt.get(), opt_gs_params.quats, dupIdcs, 1);
+        addToOptimizer(featuresDcOpt.get(), opt_gs_params.featuresDc, dupIdcs, 1);
+        addToOptimizer(featuresRestOpt.get(), opt_gs_params.featuresRest, dupIdcs, 1);
+        addToOptimizer(opacitiesOpt.get(), opt_gs_params.opacities, dupIdcs, 1);
 
         torch::Tensor splitIdcs = torch::where(is_split)[0];
-        addToOptimizer(meansOpt, opt_gs_params.means, splitIdcs, nSplitSamples);
-        addToOptimizer(scalesOpt, opt_gs_params.scales, splitIdcs, nSplitSamples);
-        addToOptimizer(quatsOpt, opt_gs_params.quats, splitIdcs, nSplitSamples);
-        addToOptimizer(featuresDcOpt, opt_gs_params.featuresDc, splitIdcs, nSplitSamples);
-        addToOptimizer(featuresRestOpt, opt_gs_params.featuresRest, splitIdcs, nSplitSamples);
-        addToOptimizer(opacitiesOpt, opt_gs_params.opacities, splitIdcs, nSplitSamples);
+        addToOptimizer(meansOpt.get(), opt_gs_params.means, splitIdcs, nSplitSamples);
+        addToOptimizer(scalesOpt.get(), opt_gs_params.scales, splitIdcs, nSplitSamples);
+        addToOptimizer(quatsOpt.get(), opt_gs_params.quats, splitIdcs, nSplitSamples);
+        addToOptimizer(featuresDcOpt.get(), opt_gs_params.featuresDc, splitIdcs, nSplitSamples);
+        addToOptimizer(featuresRestOpt.get(), opt_gs_params.featuresRest, splitIdcs, nSplitSamples);
+        addToOptimizer(opacitiesOpt.get(), opt_gs_params.opacities, splitIdcs, nSplitSamples);
 
         // 这里要做这个更新mask的操作是因为后面在prune的时候要把split之前的大尺寸高斯全都删掉，要正确地更新tensor的尺寸
         torch::Tensor splitsMask = torch::cat({is_split,
@@ -620,12 +662,12 @@ void RawGaussianModel::densifiyGs(float scene_scale, int curr_iter)
             opt_gs_params.featuresRest = opt_gs_params.getFeaturesRest().index({~is_prune}).detach().requires_grad_();
             opt_gs_params.opacities = opt_gs_params.getOpacities().index({~is_prune}).detach().requires_grad_();
 
-            removeFromOptimizer(meansOpt, opt_gs_params.means, is_prune);
-            removeFromOptimizer(scalesOpt, opt_gs_params.scales, is_prune);
-            removeFromOptimizer(quatsOpt, opt_gs_params.quats, is_prune);
-            removeFromOptimizer(featuresDcOpt, opt_gs_params.featuresDc, is_prune);
-            removeFromOptimizer(featuresRestOpt, opt_gs_params.featuresRest, is_prune);
-            removeFromOptimizer(opacitiesOpt, opt_gs_params.opacities, is_prune);
+            removeFromOptimizer(meansOpt.get(), opt_gs_params.means, is_prune);
+            removeFromOptimizer(scalesOpt.get(), opt_gs_params.scales, is_prune);
+            removeFromOptimizer(quatsOpt.get(), opt_gs_params.quats, is_prune);
+            removeFromOptimizer(featuresDcOpt.get(), opt_gs_params.featuresDc, is_prune);
+            removeFromOptimizer(featuresRestOpt.get(), opt_gs_params.featuresRest, is_prune);
+            removeFromOptimizer(opacitiesOpt.get(), opt_gs_params.opacities, is_prune);
 
             // std::cout << "Pruned " << (numPointsBefore - opt_gs_params.getGaussianNum()) << " gaussians, remaining " << opt_gs_params.getGaussianNum() << std::endl;
         }
@@ -634,13 +676,59 @@ void RawGaussianModel::densifiyGs(float scene_scale, int curr_iter)
 
 void RawGaussianModel::prunePoints(const torch::Tensor &deleteMask)
 {
+    auto optimizer_state_matches_mask = [&](torch::optim::Adam *optimizer) -> bool {
+        if (optimizer == nullptr ||
+            optimizer->param_groups().empty() ||
+            optimizer->param_groups()[0].params().empty())
+            return false;
+
+        const torch::Tensor param = optimizer->param_groups()[0].params()[0];
+        if (!param.defined() ||
+            param.dim() <= 0 ||
+            deleteMask.dim() <= 0 ||
+            param.size(0) != deleteMask.size(0))
+            return false;
+
+#if TORCH_VERSION_MAJOR == 2 && TORCH_VERSION_MINOR > 1
+        auto pId = param.unsafeGetTensorImpl();
+#else
+        auto pId = c10::guts::to_string(param.unsafeGetTensorImpl());
+#endif
+        auto state_it = optimizer->state().find(pId);
+        if (state_it == optimizer->state().end())
+            return false;
+        auto *adam_state = dynamic_cast<torch::optim::AdamParamState *>(state_it->second.get());
+        if (adam_state == nullptr ||
+            !adam_state->exp_avg().defined() ||
+            !adam_state->exp_avg_sq().defined() ||
+            adam_state->exp_avg().dim() <= 0 ||
+            adam_state->exp_avg_sq().dim() <= 0)
+            return false;
+        return adam_state->exp_avg().size(0) == deleteMask.size(0) &&
+               adam_state->exp_avg_sq().size(0) == deleteMask.size(0);
+    };
+
+    const bool can_update_optimizers =
+        optimizer_state_matches_mask(meansOpt.get()) &&
+        optimizer_state_matches_mask(scalesOpt.get()) &&
+        optimizer_state_matches_mask(quatsOpt.get()) &&
+        optimizer_state_matches_mask(featuresDcOpt.get()) &&
+        optimizer_state_matches_mask(featuresRestOpt.get()) &&
+        optimizer_state_matches_mask(opacitiesOpt.get());
+
     opt_gs_params.remove(deleteMask);
-    removeFromOptimizer(meansOpt, opt_gs_params.means, deleteMask);
-    removeFromOptimizer(scalesOpt, opt_gs_params.scales, deleteMask);
-    removeFromOptimizer(quatsOpt, opt_gs_params.quats, deleteMask);
-    removeFromOptimizer(featuresDcOpt, opt_gs_params.featuresDc, deleteMask);
-    removeFromOptimizer(featuresRestOpt, opt_gs_params.featuresRest, deleteMask);
-    removeFromOptimizer(opacitiesOpt, opt_gs_params.opacities, deleteMask);
+    if (!can_update_optimizers)
+    {
+        clearOptimizers();
+        return;
+    }
+
+    removeFromOptimizer(meansOpt.get(), opt_gs_params.means, deleteMask);
+    removeFromOptimizer(scalesOpt.get(), opt_gs_params.scales, deleteMask);
+    removeFromOptimizer(quatsOpt.get(), opt_gs_params.quats, deleteMask);
+    removeFromOptimizer(featuresDcOpt.get(), opt_gs_params.featuresDc, deleteMask);
+    removeFromOptimizer(featuresRestOpt.get(), opt_gs_params.featuresRest, deleteMask);
+    removeFromOptimizer(opacitiesOpt.get(), opt_gs_params.opacities, deleteMask);
 }
 
 // 目前此函数只读取了模型参数没有读取优化器参数，只支持从头训练
@@ -651,27 +739,38 @@ void RawGaussianModel::loadParamsTensor(const std::string &filename)
 }
 
 ////////////////////  Optimizer Functions ////////////////////
+void RawGaussianModel::clearOptimizers()
+{
+    // The scheduler refers to meansOpt, so destroy it before the optimizer.
+    meansOptScheduler.reset();
+    meansOpt.reset();
+    scalesOpt.reset();
+    quatsOpt.reset();
+    featuresDcOpt.reset();
+    featuresRestOpt.reset();
+    opacitiesOpt.reset();
+    exposureOpt.reset();
+}
+
 void RawGaussianModel::initOptimizers(int max_iterations, float scene_scale)
 {
-    if (meansOpt != nullptr)
-    { // 每次运行都会重置所有优化器
-        delete meansOpt, delete scalesOpt, delete quatsOpt, delete featuresDcOpt, delete featuresRestOpt, delete opacitiesOpt, delete meansOptScheduler;
-        meansOpt = nullptr, scalesOpt = nullptr, quatsOpt = nullptr, featuresDcOpt = nullptr, featuresRestOpt = nullptr, opacitiesOpt = nullptr, meansOptScheduler = nullptr, exposureOpt = nullptr;
-    }
+    // Each local optimization pass rebuilds Adam state for the current tensor
+    // handles, so stale optimizer state must not retain old CUDA tensors.
+    clearOptimizers();
     float BS = 1;
     float eps = 1e-15 / std::sqrt(BS);
     float B1 = 1 - BS * (1 - 0.9);
     float B2 = 1 - BS * (1 - 0.999);
 
-    meansOpt = new torch::optim::Adam({opt_gs_params.means}, torch::optim::AdamOptions(meansLr * scene_scale).eps(eps).betas(std::make_tuple(B1, B2)));
-    scalesOpt = new torch::optim::Adam({opt_gs_params.scales}, torch::optim::AdamOptions(scalesLr).eps(eps).betas(std::make_tuple(B1, B2)));
-    quatsOpt = new torch::optim::Adam({opt_gs_params.quats}, torch::optim::AdamOptions(quatsLr).eps(eps).betas(std::make_tuple(B1, B2)));
-    featuresDcOpt = new torch::optim::Adam({opt_gs_params.featuresDc}, torch::optim::AdamOptions(featuresDcLr).eps(eps).betas(std::make_tuple(B1, B2)));
-    featuresRestOpt = new torch::optim::Adam({opt_gs_params.featuresRest}, torch::optim::AdamOptions(featuresRestLr).eps(eps).betas(std::make_tuple(B1, B2)));
-    opacitiesOpt = new torch::optim::Adam({opt_gs_params.opacities}, torch::optim::AdamOptions(opacitiesLr).eps(eps).betas(std::make_tuple(B1, B2)));
-    exposureOpt = new torch::optim::Adam({opt_gs_params.exposure}, torch::optim::AdamOptions(exposureLr).eps(eps).betas(std::make_tuple(B1, B2)));
+    meansOpt = std::make_unique<torch::optim::Adam>(std::vector<torch::Tensor>{opt_gs_params.means}, torch::optim::AdamOptions(meansLr * scene_scale).eps(eps).betas(std::make_tuple(B1, B2)));
+    scalesOpt = std::make_unique<torch::optim::Adam>(std::vector<torch::Tensor>{opt_gs_params.scales}, torch::optim::AdamOptions(scalesLr).eps(eps).betas(std::make_tuple(B1, B2)));
+    quatsOpt = std::make_unique<torch::optim::Adam>(std::vector<torch::Tensor>{opt_gs_params.quats}, torch::optim::AdamOptions(quatsLr).eps(eps).betas(std::make_tuple(B1, B2)));
+    featuresDcOpt = std::make_unique<torch::optim::Adam>(std::vector<torch::Tensor>{opt_gs_params.featuresDc}, torch::optim::AdamOptions(featuresDcLr).eps(eps).betas(std::make_tuple(B1, B2)));
+    featuresRestOpt = std::make_unique<torch::optim::Adam>(std::vector<torch::Tensor>{opt_gs_params.featuresRest}, torch::optim::AdamOptions(featuresRestLr).eps(eps).betas(std::make_tuple(B1, B2)));
+    opacitiesOpt = std::make_unique<torch::optim::Adam>(std::vector<torch::Tensor>{opt_gs_params.opacities}, torch::optim::AdamOptions(opacitiesLr).eps(eps).betas(std::make_tuple(B1, B2)));
+    exposureOpt = std::make_unique<torch::optim::Adam>(std::vector<torch::Tensor>{opt_gs_params.exposure}, torch::optim::AdamOptions(exposureLr).eps(eps).betas(std::make_tuple(B1, B2)));
     if (max_iterations > 0)
-        meansOptScheduler = new OptimScheduler(meansOpt, std::pow(0.01, 1.0f / max_iterations));
+        meansOptScheduler = std::make_unique<OptimScheduler>(meansOpt.get(), std::pow(0.01, 1.0f / max_iterations));
 }
 
 void RawGaussianModel::optimizersZeroGrad()

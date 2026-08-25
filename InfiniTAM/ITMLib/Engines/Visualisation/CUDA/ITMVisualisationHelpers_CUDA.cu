@@ -47,7 +47,7 @@ __global__ void ITMLib::buildCompleteVisibleList_device(const ITMHashEntry *hash
 	if (shouldPrefix)
 	{
 		int offset = computePrefixSum_device<int>(hashVisibleType > 0, noVisibleEntries, blockDim.x * blockDim.y, threadIdx.x);
-		if (offset != -1) visibleEntryIDs[offset] = targetIdx;
+		if (offset != -1 && offset < SDF_LOCAL_BLOCK_NUM) visibleEntryIDs[offset] = targetIdx;
 	}
 }
 
@@ -56,13 +56,14 @@ __global__ void ITMLib::projectAndSplitBlocks_device(const ITMHashEntry *hashEnt
 	uint *noTotalBlocks)
 {
 	int in_offset = threadIdx.x + blockDim.x * blockIdx.x;
+	if (in_offset >= noVisibleEntries) return;
 
 	const ITMHashEntry & blockData(hashEntries[visibleEntryIDs[in_offset]]);
 
 	Vector2i upperLeft, lowerRight;
 	Vector2f zRange;
 	bool validProjection = false;
-	if (in_offset < noVisibleEntries) if (blockData.ptr >= 0)
+	if (blockData.ptr >= 0)
 		validProjection = ProjectSingleBlock(blockData.pos, pose_M, intrinsics, imgSize, voxelSize, upperLeft, lowerRight, zRange);
 
 	Vector2i requiredRenderingBlocks(ceilf((float)(lowerRight.x - upperLeft.x + 1) / renderingBlockSizeX),

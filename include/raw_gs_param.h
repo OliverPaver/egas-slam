@@ -33,6 +33,8 @@ public:
 
     bool isDefined() const { return means.defined(); }
 
+    void clear();
+
     void requireGrad(bool require_grad);
 
     void toGPU();
@@ -40,6 +42,8 @@ public:
     void toCPU();
 
     void toDevice(torch::Device device);
+
+    RawGaussianParams cloneDetached() const;
 
     void add(const RawGaussianParams &other);
 
@@ -52,7 +56,7 @@ public:
     void loadTensor(const std::string &filename);
 
     // 直接访问tensor的原始值
-    int getGaussianNum()
+    int getGaussianNum() const
     {
         if (!isDefined())
             return 0;

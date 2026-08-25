@@ -16,7 +16,13 @@ OPTION(WITH_CUDA "Build with CUDA support?" ${CUDAToolkit_FOUND})
 
 IF(WITH_CUDA)
   message(STATUS "Building with CUDA support")
-  SET(CMAKE_CUDA_ARCHITECTURES 70;75;80)
+  # Honour the architecture selected by the parent project/toolchain.  The
+  # previous unconditional assignment silently replaced Thor's SM 11.0 with
+  # 70;75;80; CUDA 13 no longer accepts the Volta (70) target.
+  IF(NOT CMAKE_CUDA_ARCHITECTURES)
+    MESSAGE(FATAL_ERROR "InfiniTAM requires an explicit CMAKE_CUDA_ARCHITECTURES value")
+  ENDIF()
+  message(STATUS "InfiniTAM CUDA architectures: ${CMAKE_CUDA_ARCHITECTURES}")
 
   # Auto-detect the CUDA compute capability.
   # SET(CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
@@ -30,10 +36,7 @@ IF(WITH_CUDA)
   # ENDFOREACH()
   # message(STATUS "CUDA compute capability: ${CUDA_COMPUTE_CAPABILITY}")
 
-  # Enable fast math.
-  SET(CUDA_NVCC_FLAGS --use_fast_math ; ${CUDA_NVCC_FLAGS})
-
-  message(STATUS "CUDA NVCC Flags: ${CUDA_NVCC_FLAGS}")
+  message(STATUS "CUDA fast math: ${GPS_SLAM_CUDA_FAST_MATH}")
 ELSE()
   message(STATUS "Building without CUDA support")
   ADD_DEFINITIONS(-DCOMPILE_WITHOUT_CUDA)

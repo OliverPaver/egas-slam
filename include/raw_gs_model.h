@@ -1,5 +1,6 @@
 #pragma once
 #include <chrono>
+#include <memory>
 #include "raw_gs_param.h"
 #include "dataset_reader.h"
 
@@ -9,8 +10,11 @@ class RawGaussianModel
 {
 public:
     RawGaussianModel() = default;
-
     ~RawGaussianModel() = default;
+    RawGaussianModel(const RawGaussianModel &) = delete;
+    RawGaussianModel &operator=(const RawGaussianModel &) = delete;
+    RawGaussianModel(RawGaussianModel &&) noexcept = default;
+    RawGaussianModel &operator=(RawGaussianModel &&) noexcept = default;
 
     // 初始化高斯参数
     void initGaussianParams(const Points &init_points, int frame_num)
@@ -20,7 +24,7 @@ public:
     }
 
     // 读取配置文件设置参数
-    void loadConfig(const YAML::Node &config);
+    void loadConfig(const YAML::Node &config, bool verbose = true);
 
     // 根据当前的iteration更新启用的SH阶数
     void updateSH(int curr_iter = -1)
@@ -51,6 +55,10 @@ public:
 
     // 一次标准的前向计算
     TensorDict gesForward(const Camera &cam, const torch::Tensor &ref_depth, const torch::Tensor &base_color);
+
+    float getGesResidualScale() const { return gesResidualScale; }
+
+    float getGesBaseColorWeight() const { return gesBaseColorWeight; }
 
     // 根据前向结果计算误差
     TensorDict computeLoss(TensorDict &render_res, const Camera &cam, const YAML::Node &weight_configs, const torch::Tensor &mask = torch::Tensor());
@@ -87,6 +95,12 @@ public:
         opt_gs_params.toDevice(device);
     }
 
+    void clearParams()
+    {
+        clearOptimizers();
+        opt_gs_params.clear();
+    }
+
     void setParamsRequireGrad()
     {
         opt_gs_params.requireGrad(true);
@@ -95,6 +109,8 @@ public:
     ////////////////////  Optimizer Functions ////////////////////
 
     void initOptimizers(int max_iterations = -1, float scene_scale = 1);
+
+    void clearOptimizers();
 
     void optimizersZeroGrad();
 
@@ -234,9 +250,34 @@ public:
         return opt_gs_params.getRealOpacities();
     }
 
-    int getGaussianNum()
+    int getGaussianNum() const
     {
         return opt_gs_params.getGaussianNum();
+    }
+
+    bool paramsOnDevice(torch::Device target) const
+    {
+        if (!opt_gs_params.isDefined())
+            return true;
+
+        auto tensor_on_target = [&](const torch::Tensor &tensor) {
+            if (!tensor.defined())
+                return true;
+            const torch::Device actual = tensor.device();
+            if (actual.type() != target.type())
+                return false;
+            if (target.has_index() && actual.has_index() && actual.index() != target.index())
+                return false;
+            return true;
+        };
+
+        return tensor_on_target(opt_gs_params.means) &&
+               tensor_on_target(opt_gs_params.scales) &&
+               tensor_on_target(opt_gs_params.quats) &&
+               tensor_on_target(opt_gs_params.featuresDc) &&
+               tensor_on_target(opt_gs_params.featuresRest) &&
+               tensor_on_target(opt_gs_params.opacities) &&
+               tensor_on_target(opt_gs_params.exposure);
     }
 
     std::string getRenderMethod()
@@ -244,19 +285,24 @@ public:
         return render_method;
     }
 
+    YAML::Node getConfig() const
+    {
+        return config;
+    }
+
     RawGaussianParams opt_gs_params;
     // 数据在哪个设备上(gpu/cpu)，目前默认只支持gpu
     torch::Device device = torch::kCUDA;
 
     // 高斯参数优化器
-    torch::optim::Adam *meansOpt = nullptr;
-    torch::optim::Adam *scalesOpt = nullptr;
-    torch::optim::Adam *quatsOpt = nullptr;
-    torch::optim::Adam *featuresDcOpt = nullptr;
-    torch::optim::Adam *featuresRestOpt = nullptr;
-    torch::optim::Adam *opacitiesOpt = nullptr;
-    torch::optim::Adam *exposureOpt = nullptr;
-    OptimScheduler *meansOptScheduler = nullptr;
+    std::unique_ptr<torch::optim::Adam> meansOpt;
+    std::unique_ptr<torch::optim::Adam> scalesOpt;
+    std::unique_ptr<torch::optim::Adam> quatsOpt;
+    std::unique_ptr<torch::optim::Adam> featuresDcOpt;
+    std::unique_ptr<torch::optim::Adam> featuresRestOpt;
+    std::unique_ptr<torch::optim::Adam> opacitiesOpt;
+    std::unique_ptr<torch::optim::Adam> exposureOpt;
+    std::unique_ptr<OptimScheduler> meansOptScheduler;
 
 private:
     friend class SLAMGaussianModel;
@@ -292,7 +338,10 @@ private:
     // RasterizeToPixels
     bool abs_grad = false;
     float delta_depth = 0;
+    float gesResidualScale = 1.0f;
+    float gesBaseColorWeight = 1.0f;
     at::optional<torch::Tensor> backgrounds;
     // 背景颜色
     torch::Tensor backgroundColor = torch::tensor({0.0f, 0.0f, 0.0f}, torch::kCUDA);
+    bool log_timing = false;
 };

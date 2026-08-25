@@ -301,6 +301,10 @@ namespace ITMLib
 		cfg.parseIntProperty("framesToSkip", "number of frames to skip before depth pixel is used for tracking", framesToSkip, verbose);
 		cfg.parseIntProperty("framesToWeight", "number of frames to weight each depth pixel for before using it fully", framesToWeight, verbose);
 		cfg.parseFltProperty("failureDec", "threshold for the failure detection", failureDetectorThd, verbose);
+		if (levels.empty()) DIEWITHEXCEPTION("Extended tracker requires at least one hierarchy level");
+		if (numIterationsCoarse <= 0 || numIterationsFine <= 0) DIEWITHEXCEPTION("Extended tracker iteration counts must be positive");
+		if (framesToSkip < 0) DIEWITHEXCEPTION("Extended tracker framesToSkip must be non-negative");
+		if (framesToWeight <= 0) DIEWITHEXCEPTION("Extended tracker framesToWeight must be positive");
 
 		ITMExtendedTracker *ret = NULL;
 		switch (deviceType)

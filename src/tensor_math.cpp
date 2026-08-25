@@ -1,14 +1,17 @@
 #include "tensor_math.h"
 
+#include <stdexcept>
+
 using namespace torch::indexing;
 
 ORUtils::Matrix4<float> *tensorToInfiMatrix4(const torch::Tensor &tensor)
 {
-    // 确保 tensor 是 4x4 的
-    assert(tensor.sizes() == c10::IntArrayRef({4, 4}));
-
-    // 确保数据类型匹配（这里假设 T 是 float，如果是 double 需要相应调整）
-    assert(tensor.dtype() == torch::kFloat32);
+    if (!tensor.defined() || tensor.dim() != 2 || tensor.size(0) != 4 || tensor.size(1) != 4)
+        throw std::runtime_error("InfiniTAM pose conversion requires a defined 4x4 tensor");
+    if (tensor.dtype() != torch::kFloat32)
+        throw std::runtime_error("InfiniTAM pose conversion requires float32 input");
+    if (!torch::isfinite(tensor).all().item<bool>())
+        throw std::runtime_error("InfiniTAM pose conversion rejected a non-finite transform");
 
     // 创建 Matrix4 对象
     ORUtils::Matrix4<float> *matrix = new ORUtils::Matrix4<float>();

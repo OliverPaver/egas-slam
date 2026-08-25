@@ -82,7 +82,7 @@ int main(int argc, char *argv[])
     DatasetReader data_reader(config["READER"]);
     data_reader.read();
     data_reader.updateSceneGeo();
-    CLIEngine *tsdf_engine = createTsdfEngine(data_reader, config["PIPE"]["TSDF"]);
+    TsdfEngineFacade *tsdf_engine = createTsdfEngine(data_reader, config["PIPE"]["TSDF"], workspace_dir);
     SLAMPipeline pipe;
     pipe.setTsdfEngine(tsdf_engine);
     pipe.work_mode = work_mode;

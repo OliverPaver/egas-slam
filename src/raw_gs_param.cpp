@@ -73,6 +73,17 @@ void RawGaussianParams::init(const torch::Tensor &xyz,
 #endif
 }
 
+void RawGaussianParams::clear()
+{
+    means = torch::Tensor();
+    scales = torch::Tensor();
+    quats = torch::Tensor();
+    featuresDc = torch::Tensor();
+    featuresRest = torch::Tensor();
+    opacities = torch::Tensor();
+    exposure = torch::Tensor();
+}
+
 void RawGaussianParams::requireGrad(bool require_grad)
 {
     means.set_requires_grad(require_grad);
@@ -118,6 +129,28 @@ void RawGaussianParams::toDevice(torch::Device device)
     featuresRest = featuresRest.detach().clone().to(device);
     opacities = opacities.detach().clone().to(device);
     exposure = exposure.detach().clone().to(device);
+}
+
+RawGaussianParams RawGaussianParams::cloneDetached() const
+{
+    RawGaussianParams cloned;
+    if (!isDefined())
+        return cloned;
+
+    auto clone_tensor = [](const torch::Tensor &tensor) {
+        if (!tensor.defined())
+            return torch::Tensor();
+        return tensor.detach().clone();
+    };
+
+    cloned.means = clone_tensor(means);
+    cloned.scales = clone_tensor(scales);
+    cloned.quats = clone_tensor(quats);
+    cloned.featuresDc = clone_tensor(featuresDc);
+    cloned.featuresRest = clone_tensor(featuresRest);
+    cloned.opacities = clone_tensor(opacities);
+    cloned.exposure = clone_tensor(exposure);
+    return cloned;
 }
 
 void RawGaussianParams::add(const RawGaussianParams &other)

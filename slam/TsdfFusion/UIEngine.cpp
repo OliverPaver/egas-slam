@@ -601,7 +601,7 @@ void UIEngine::Initialise(int &argc, char **argv,
     processedTime = 0.0f;
 
 #ifndef COMPILE_WITHOUT_CUDA
-    ORcudaSafeCall(cudaThreadSynchronize());
+    ORcudaSafeCall(cudaDeviceSynchronize());
 #endif
 
     sdkCreateTimer(&timer_instant);
@@ -647,7 +647,7 @@ void UIEngine::ProcessFrame()
     trackingResult = (int)trackerResult;
 
 #ifndef COMPILE_WITHOUT_CUDA
-    ORcudaSafeCall(cudaThreadSynchronize());
+    ORcudaSafeCall(cudaDeviceSynchronize());
 #endif
     sdkStopTimer(&timer_instant);
     sdkStopTimer(&timer_average);

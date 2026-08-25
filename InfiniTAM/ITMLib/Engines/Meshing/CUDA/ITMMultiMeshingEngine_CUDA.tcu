@@ -72,7 +72,7 @@ void ITMMultiMeshingEngine_CUDA<TVoxel, ITMVoxelBlockHash>::MeshScene(ITMMesh *m
 	float factor = sceneParams.voxelSize;
 
 	ORcudaSafeCall(cudaMemset(noTriangles_device, 0, sizeof(unsigned int)));
-	ORcudaSafeCall(cudaMemset(visibleBlockGlobalPos_device, 0, sizeof(Vector4s) * SDF_LOCAL_BLOCK_NUM));
+	ORcudaSafeCall(cudaMemset(visibleBlockGlobalPos_device, 0, sizeof(Vector4s) * SDF_LOCAL_BLOCK_NUM * numLocalMaps));
 
 	{ // identify used voxel blocks
 		dim3 cudaBlockSize(256);

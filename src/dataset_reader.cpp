@@ -4,6 +4,8 @@
 #include "cv_utils.h"
 #include "file_utils.h"
 #include "tensor_math.h"
+#include <cmath>
+#include <set>
 
 namespace fs = std::filesystem;
 using namespace torch::indexing;
@@ -85,18 +87,23 @@ void Points::readPly(std::string filename)
 
 torch::Tensor Camera::loadImage(float downscale_factor)
 {
-    if (image.numel())
-        std::runtime_error("loadImage already called");
+    if (image.defined())
+        throw std::runtime_error("Camera::loadImage called while image data is already resident");
+    if (!std::isfinite(downscale_factor) || downscale_factor < 1.0f)
+        throw std::runtime_error("READER.downscale_factor must be finite and at least 1.0");
 
     cv::Mat cImg = imreadRGB(imgFilePath);
     if (downscale_factor > 1.0f)
     {
         float scaleFactor = 1.0f / downscale_factor;
         cv::resize(cImg, cImg, cv::Size(), scaleFactor, scaleFactor, cv::INTER_AREA);
-        fx *= scaleFactor;
-        fy *= scaleFactor;
-        cx *= scaleFactor;
-        cy *= scaleFactor;
+        if (!load_geometry_initialized)
+        {
+            fx *= scaleFactor;
+            fy *= scaleFactor;
+            cx *= scaleFactor;
+            cy *= scaleFactor;
+        }
     }
     torch::Tensor res = imageToTensor(cImg);
 
@@ -111,12 +118,23 @@ torch::Tensor Camera::loadImage(float downscale_factor)
     fy = K[1][1].item<float>();
     cx = K[0][2].item<float>();
     cy = K[1][2].item<float>();
+    load_geometry_initialized = true;
     return res;
 }
 
 torch::Tensor Camera::loadDepth(float downscale_factor, float depth_scale)
 {
+    if (depth.defined())
+        throw std::runtime_error("Camera::loadDepth called while depth data is already resident");
+    if (!std::isfinite(downscale_factor) || downscale_factor < 1.0f)
+        throw std::runtime_error("READER.downscale_factor must be finite and at least 1.0");
+    if (!std::isfinite(depth_scale) || depth_scale <= 0.0f)
+        throw std::runtime_error("READER.depth_scale must be finite and greater than zero");
     cv::Mat cDepth = cv::imread(depthFilePath, cv::IMREAD_UNCHANGED);
+    if (cDepth.empty())
+        throw std::runtime_error(
+            "Cannot read depth image: " + depthFilePath +
+            ". Check that the configured depth path and codec are valid.");
 
     // 将深度图像转换为浮点型
     cDepth.convertTo(cDepth, CV_32F);
@@ -133,6 +151,8 @@ torch::Tensor Camera::loadDepth(float downscale_factor, float depth_scale)
 
 std::string Camera::getFrameID(std::string prefix, std::string suffix) const
 {
+    if (!frame_id_str.empty())
+        return frame_id_str;
     // 找到前缀的位置
     size_t startPos = imgFilePath.find(prefix);
     if (startPos != std::string::npos)
@@ -220,14 +240,47 @@ DatasetReader::DatasetReader(const YAML::Node &config)
     this->config = config;
 
     // get camera params
-    fx = config["intrinsics"].as<std::vector<float>>()[0];
-    fy = config["intrinsics"].as<std::vector<float>>()[1];
-    cx = config["intrinsics"].as<std::vector<float>>()[2];
-    cy = config["intrinsics"].as<std::vector<float>>()[3];
-    width = config["image_shape"].as<std::vector<int>>()[0];
-    height = config["image_shape"].as<std::vector<int>>()[1];
+    const auto intrinsics = config["intrinsics"].as<std::vector<float>>();
+    const auto image_shape = config["image_shape"].as<std::vector<int>>();
+    if (intrinsics.size() != 4)
+        throw std::runtime_error("READER.intrinsics must contain [fx, fy, cx, cy]");
+    if (image_shape.size() != 2)
+        throw std::runtime_error("READER.image_shape must contain [width, height]");
+    fx = intrinsics[0];
+    fy = intrinsics[1];
+    cx = intrinsics[2];
+    cy = intrinsics[3];
+    width = image_shape[0];
+    height = image_shape[1];
+    if (!std::isfinite(fx) || !std::isfinite(fy) || fx <= 0.0f || fy <= 0.0f)
+        throw std::runtime_error("READER focal lengths must be finite and greater than zero");
+    if (!std::isfinite(cx) || !std::isfinite(cy))
+        throw std::runtime_error("READER principal point must be finite");
+    if (width <= 0 || height <= 0)
+        throw std::runtime_error("READER.image_shape dimensions must be greater than zero");
+    if (config["image_prefix"])
+        image_prefix = config["image_prefix"].as<std::string>();
+    if (config["image_extension"])
+        image_extension = config["image_extension"].as<std::string>();
+    if (config["depth_prefix"])
+        depth_prefix = config["depth_prefix"].as<std::string>();
+    if (config["depth_extension"])
+        depth_extension = config["depth_extension"].as<std::string>();
+    if (config["pose_prefix"])
+        pose_prefix = config["pose_prefix"].as<std::string>();
+    if (config["pose_extension"])
+        pose_extension = config["pose_extension"].as<std::string>();
+    auto normalize_extension = [](std::string &extension) {
+        if (!extension.empty() && extension[0] != '.')
+            extension = "." + extension;
+    };
+    normalize_extension(image_extension);
+    normalize_extension(depth_extension);
+    normalize_extension(pose_extension);
     std::string pcd_name = config["pcd_name"].as<std::string>();
     downscale_factor = config["downscale_factor"].as<float>();
+    if (!std::isfinite(downscale_factor) || downscale_factor < 1.0f)
+        throw std::runtime_error("READER.downscale_factor must be finite and at least 1.0");
     scene_scale = 1.1f * config["scene_scale"].as<float>();
     scene_centor = torch::zeros(3);
     fs::path dataRoot(input_dir);
@@ -295,30 +348,39 @@ void DatasetReader::read()
     int end_frame = config["end_frame"].as<int>();
     int frame_step = config["frame_step"].as<int>();
     int test_split_interval = config["test_split_interval"].as<int>();
+    const bool preload_images = !config["preload_images"] || config["preload_images"].as<bool>();
+    const float depth_scale = config["depth_scale"].as<float>();
+
+    if (frame_step <= 0)
+        throw std::runtime_error("READER.frame_step must be greater than zero");
+    if (test_split_interval == 0)
+        throw std::runtime_error("READER.test_split_interval must be -1 (no split) or a positive integer");
 
     if (end_frame <= 0)
     {
-        int jpg_count = 0;
+        int image_count = 0;
         for (const auto &entry : fs::directory_iterator(imagePath))
         {
-            if (entry.is_regular_file() && entry.path().extension() == ".jpg")
+            if (entry.is_regular_file() && entry.path().extension() == image_extension)
             {
-                jpg_count++;
+                image_count++;
             }
         }
-        end_frame = jpg_count;
+        end_frame = image_count > 0 ? start_frame + (image_count - 1) * frame_step : start_frame - 1;
     }
 
+    if (end_frame < start_frame)
+        throw std::runtime_error("READER.end_frame resolved before READER.start_frame");
     int read_count = 0;
-    int total_frame = (end_frame - start_frame + 1) / frame_step;
+    int total_frame = (end_frame - start_frame) / frame_step + 1;
     torch::Tensor init_c2w;
     for (int frame_id = start_frame; frame_id <= end_frame; frame_id += frame_step)
     {
 
         std::string filename = idToFilename(frame_id);
-        std::string pose_filename = (posePath / ("pose" + filename + ".txt")).string();
-        std::string img_filename = (imagePath / ("frame" + filename + ".jpg")).string();
-        std::string depth_filename = (depthPath / ("depth" + filename + ".png")).string();
+        std::string pose_filename = (posePath / (pose_prefix + filename + pose_extension)).string();
+        std::string img_filename = (imagePath / (image_prefix + filename + image_extension)).string();
+        std::string depth_filename = (depthPath / (depth_prefix + filename + depth_extension)).string();
         if (!fs::exists(pose_filename))
             throw std::runtime_error(pose_filename + " does not exist");
         if (!fs::exists(img_filename))
@@ -336,10 +398,15 @@ void DatasetReader::read()
         Camera cam(width, height, fx, fy, cx, cy, has_depth, ref_c2w_pose, img_filename, depth_filename);
 
         cam.c2w_slam = ref_c2w_pose.clone();
-        cam.image = cam.loadImage(downscale_factor);
+        cam.frame_id_str = filename;
+        cam.load_downscale_factor = downscale_factor;
+        cam.load_depth_scale = depth_scale;
+        cam.release_after_frame = !preload_images;
+        if (preload_images)
+            cam.image = cam.loadImage(downscale_factor);
         cam.id = read_count;
-        if (has_depth)
-            cam.depth = cam.loadDepth(downscale_factor, config["depth_scale"].as<float>());
+        if (preload_images && has_depth)
+            cam.depth = cam.loadDepth(downscale_factor, depth_scale);
 
         // cam.toGPU();
 
@@ -364,13 +431,17 @@ void DatasetReader::read()
         bar.set_progress(100 * read_count / total_frame);
     }
     show_console_cursor(true);
+    if (train_vec.empty())
+        throw std::runtime_error(
+            "READER.test_split_interval produced an empty training set; use -1 or an interval greater than 1");
     std::cout << "train set num: " << train_vec.size() << std::endl;
     std::cout << "val set num: " << val_vec.size() << std::endl;
 }
 
 void DatasetReader::updateSceneGeo()
 {
-    if (train_vec.size() == 1)
+    const auto all_cams = getAllCams();
+    if (all_cams.size() <= 1)
     {
         // 当只有一个相机的时候，无法估算场景几何，直接返回
         scene_scale = 1.0f;
@@ -378,17 +449,15 @@ void DatasetReader::updateSceneGeo()
         return;
     }
     torch::Tensor sum = torch::zeros({3});
-    auto all_cams = getAllCams();
-
-    for (auto cam : all_cams)
+    for (const auto &cam : all_cams)
     {
         torch::Tensor cam_location = cam.c2w.index({Slice(0, 3), 3});
         sum += cam_location;
     }
 
-    scene_centor = sum / train_vec.size();
+    scene_centor = sum / all_cams.size();
     float max_dist = 0.0;
-    for (auto cam : all_cams)
+    for (const auto &cam : all_cams)
     {
         torch::Tensor cam_location = cam.c2w.index({Slice(0, 3), 3});
         float dist = torch::norm(cam_location - scene_centor).item<float>();
@@ -417,6 +486,30 @@ void DatasetReader::savePose(const std::string &save_dir)
     }
 }
 
+bool DatasetReader::loadSlamPose(const std::string &pose_dir)
+{
+    if (!fs::exists(pose_dir))
+        return false;
+
+    std::set<std::string> loaded_files;
+    auto load_pose_for_cam = [&](Camera &cam) {
+        fs::path pose_path = fs::path(pose_dir) / ("frame" + cam.getFrameID() + ".txt");
+        if (!fs::exists(pose_path))
+            return;
+        Matrix4 c2w_mat = readMatrixFromTXT(pose_path.string());
+        cam.c2w_slam = matrixToTensor(c2w_mat);
+        loaded_files.insert(pose_path.string());
+    };
+
+    for (auto &cam : train_vec)
+        load_pose_for_cam(cam);
+    for (auto &cam : val_vec)
+        load_pose_for_cam(cam);
+
+    std::cout << "Loaded " << loaded_files.size() << " saved SLAM poses from: " << pose_dir << std::endl;
+    return !loaded_files.empty();
+}
+
 void saveCameras(const std::vector<Camera> &input_cameras, const std::string &filename)
 {
     json j = json::array();
@@ -427,6 +520,7 @@ void saveCameras(const std::vector<Camera> &input_cameras, const std::string &fi
 
         json camera = json::object();
         camera["id"] = i;
+        camera["frame_id"] = cam.getFrameID();
         camera["img_name"] = fs::path(cam.imgFilePath).filename().string();
         camera["width"] = cam.width;
         camera["height"] = cam.height;

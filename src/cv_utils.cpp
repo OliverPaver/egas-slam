@@ -1,5 +1,9 @@
 #include "cv_utils.h"
 
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
+
 // 把cv mat转换为torch tensor
 torch::Tensor matToTensor(const cv::Mat &mat)
 {
@@ -44,9 +48,9 @@ cv::Mat imreadRGB(const std::string &filename)
 
     if (cImg.empty())
     {
-        std::cerr << "Cannot read " << filename << std::endl
-                  << "Make sure the path to your images is correct" << std::endl;
-        exit(1);
+        throw std::runtime_error(
+            "Cannot read RGB image: " + filename +
+            ". Check that the configured image path and codec are valid.");
     }
 
     cv::cvtColor(cImg, cImg, cv::COLOR_BGR2RGB);
@@ -220,19 +224,20 @@ torch::Tensor depthToTensor(const cv::Mat &depth)
 
 ITMUChar4Image *imageToITMUChar4Image(const cv::Mat &image, MemoryDeviceType type)
 {
-    int width = image.cols;
-    int height = image.rows;
-    int channels = image.channels();
+    ITMUChar4Image *result = new ITMUChar4Image(ORUtils::Vector2<int>(image.cols, image.rows), true, false);
+    imageToITMUChar4Image(image, *result, type);
+    return result;
+}
 
-    // 创建 Image<Vector4u>
-    ITMUChar4Image *result = new ITMUChar4Image(ORUtils::Vector2<int>(width, height), true, false); // 只在 CPU 上分配内存
-    ORUtils::Vector4<unsigned char> *dataPtr = result->GetData(type);
-
-    // 遍历每个像素
+void imageToITMUChar4Image(const cv::Mat &image, ITMUChar4Image &result, MemoryDeviceType type)
+{
+    if (result.noDims.x != image.cols || result.noDims.y != image.rows)
+        throw std::runtime_error("RGB image dimensions do not match reusable InfiniTAM input buffer");
+    ORUtils::Vector4<unsigned char> *dataPtr = result.GetData(type);
     int count = 0;
-    for (int y = 0; y < height; ++y)
+    for (int y = 0; y < image.rows; ++y)
     {
-        for (int x = 0; x < width; ++x)
+        for (int x = 0; x < image.cols; ++x)
         {
             cv::Vec3b bgr = image.at<cv::Vec3b>(y, x);
             dataPtr[count].x = bgr[2];
@@ -242,29 +247,84 @@ ITMUChar4Image *imageToITMUChar4Image(const cv::Mat &image, MemoryDeviceType typ
             count++;
         }
     }
-    return result;
+}
+
+void imageTensorToITMUChar4Image(const torch::Tensor &image, ITMUChar4Image &result)
+{
+    if (!image.defined() || image.dim() != 3 || image.size(2) != 3)
+        throw std::runtime_error("RGB tensor must have shape HxWx3");
+    if (result.noDims.x != image.size(1) || result.noDims.y != image.size(0))
+        throw std::runtime_error("RGB tensor dimensions do not match reusable InfiniTAM input buffer");
+
+    // On-demand dataset tensors are already contiguous CPU float32 tensors, so
+    // these conversions are normally zero-copy views. The fallback keeps the
+    // utility safe for other callers.
+    torch::Tensor input = image.detach().to(torch::kCPU).to(torch::kFloat32).contiguous();
+    const float *source = input.data_ptr<float>();
+    ORUtils::Vector4<unsigned char> *destination = result.GetData(MEMORYDEVICE_CPU);
+    const int64_t pixel_count = input.size(0) * input.size(1);
+    for (int64_t pixel = 0; pixel < pixel_count; ++pixel)
+    {
+        const int64_t source_offset = pixel * 3;
+        for (int channel = 0; channel < 3; ++channel)
+        {
+            const float value = source[source_offset + channel];
+            const float scaled = std::isfinite(value)
+                ? std::max(0.0f, std::min(255.0f, value * 255.0f))
+                : 0.0f;
+            destination[pixel].v[channel] = static_cast<unsigned char>(scaled);
+        }
+        destination[pixel].w = 255;
+    }
 }
 
 ITMShortImage *depthToITMUShortImage(const cv::Mat &depth, MemoryDeviceType type)
 {
-    int width = depth.cols;
-    int height = depth.rows;
+    ITMShortImage *result = new ITMShortImage(ORUtils::Vector2<int>(depth.cols, depth.rows), true, false);
+    depthToITMUShortImage(depth, *result, type);
+    return result;
+}
 
-    // 创建 Image<short>
-    ITMShortImage *result = new ITMShortImage(ORUtils::Vector2<int>(width, height), true, false); // 只在 CPU 上分配内存
-    short *dataPtr = result->GetData(type);
-
-    // 遍历每个像素
+void depthToITMUShortImage(const cv::Mat &depth, ITMShortImage &result, MemoryDeviceType type)
+{
+    if (result.noDims.x != depth.cols || result.noDims.y != depth.rows)
+        throw std::runtime_error("Depth image dimensions do not match reusable InfiniTAM input buffer");
+    short *dataPtr = result.GetData(type);
     int count = 0;
-    for (int y = 0; y < height; ++y)
+    for (int y = 0; y < depth.rows; ++y)
     {
-        for (int x = 0; x < width; ++x)
+        for (int x = 0; x < depth.cols; ++x)
         {
             dataPtr[count] = depth.at<short>(y, x);
             count++;
         }
     }
-    return result;
+}
+
+void depthTensorToITMUShortImage(const torch::Tensor &depth,
+                                 ITMShortImage &result,
+                                 float millimetres_per_metre)
+{
+    if (!depth.defined() || depth.dim() != 3 || depth.size(2) != 1)
+        throw std::runtime_error("Depth tensor must have shape HxWx1");
+    if (result.noDims.x != depth.size(1) || result.noDims.y != depth.size(0))
+        throw std::runtime_error("Depth tensor dimensions do not match reusable InfiniTAM input buffer");
+    if (!std::isfinite(millimetres_per_metre) || millimetres_per_metre <= 0.0f)
+        throw std::runtime_error("Depth tensor scale must be finite and positive");
+
+    torch::Tensor input = depth.detach().to(torch::kCPU).to(torch::kFloat32).contiguous();
+    // Wrap both existing buffers and let the same OpenCV conversion used by
+    // the legacy bridge write directly into InfiniTAM storage. This preserves
+    // its saturation/rounding semantics without either intermediate copy.
+    cv::Mat source(static_cast<int>(input.size(0)),
+                   static_cast<int>(input.size(1)),
+                   CV_32FC1,
+                   input.data_ptr<float>());
+    cv::Mat destination(static_cast<int>(input.size(0)),
+                        static_cast<int>(input.size(1)),
+                        CV_16UC1,
+                        result.GetData(MEMORYDEVICE_CPU));
+    source.convertTo(destination, CV_16UC1, millimetres_per_metre);
 }
 
 cv::Mat ITMUChar4ImageToImage(const ITMUChar4Image *itmu_image, MemoryDeviceType type)

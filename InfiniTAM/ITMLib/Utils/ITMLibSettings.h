@@ -6,6 +6,8 @@
 #include "ITMSurfelSceneParams.h"
 #include "../../ORUtils/MemoryDeviceType.h"
 
+#include <string>
+
 namespace ITMLib
 {
 	class ITMLibSettings
@@ -22,7 +24,8 @@ namespace ITMLib
 		{
 			FAILUREMODE_RELOCALISE,
 			FAILUREMODE_IGNORE,
-			FAILUREMODE_STOP_INTEGRATION
+			FAILUREMODE_STOP_INTEGRATION,
+			FAILUREMODE_CONTAIN_FAILED
 		} FailureMode;
         
 		typedef enum
@@ -56,6 +59,12 @@ namespace ITMLib
 		LibMode libMode;
 
 		const char *trackerConfig;
+		std::string trackerConfigStorage;
+		void SetTrackerConfig(const std::string &config)
+		{
+			trackerConfigStorage = config;
+			trackerConfig = trackerConfigStorage.c_str();
+		}
 
 		/// Further, scene specific parameters such as voxel size
 		ITMSceneParams sceneParams;

@@ -4,7 +4,10 @@
 #include <iostream>
 #include <system_error>
 #include <fstream>
+#ifdef GPS_SLAM_HAS_NVML
 #include <nvml.h>
+#endif
+#include <cuda_runtime_api.h>
 
 #include <Eigen/Dense>
 #include <torch/torch.h>

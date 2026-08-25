@@ -22,7 +22,7 @@ ENDIF()
 
 IF(NOT MSVC_IDE)
   SET(CFLAGS_WARN "-Wall -Wextra -Wno-unused-parameter -Wno-strict-aliasing")
-  SET(CMAKE_CXX_FLAGS "-fPIC -O3 -w -march=native ${CFLAGS_WARN} ${CMAKE_CXX_FLAGS}")
+  SET(CMAKE_CXX_FLAGS "-fPIC -O3 -march=native ${CFLAGS_WARN} ${CMAKE_CXX_FLAGS}")
 ENDIF()
 
 ######################

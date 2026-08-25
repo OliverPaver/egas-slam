@@ -4,8 +4,27 @@
 #include "../../../ORUtils/Cholesky.h"
 
 #include <math.h>
+#include <cmath>
+#include <limits>
 
 using namespace ITMLib;
+
+namespace
+{
+bool finiteDepthStep(const float *step)
+{
+	for (int i = 0; i < 6; ++i)
+		if (!std::isfinite(step[i])) return false;
+	return true;
+}
+
+bool finiteDepthMatrix(const Matrix4f &matrix)
+{
+	for (int i = 0; i < 16; ++i)
+		if (!std::isfinite(matrix.m[i])) return false;
+	return true;
+}
+}
 
 ITMDepthTracker::ITMDepthTracker(Vector2i imgSize, TrackerIterationType *trackingRegime, int noHierarchyLevels,
 	float terminationThreshold, float failureDetectorThreshold, const ITMLowLevelEngine *lowLevelEngine, MemoryDeviceType memoryType)
@@ -180,6 +199,12 @@ void ITMDepthTracker::UpdatePoseQuality(int noValidPoints_old, float *hessian_go
 	size_t noTotalPoints = viewHierarchy->GetLevel(0)->data->dataSize;
 
 	int noValidPointsMax = lowLevelEngine->CountValidDepths(view->depth);
+	if (noTotalPoints == 0 || noValidPointsMax <= 0 || noValidPoints_old <= 0 || !std::isfinite(f_old))
+	{
+		trackingState->trackerResult = ITMTrackingState::TRACKING_FAILED;
+		trackingState->trackerScore = std::numeric_limits<float>::infinity();
+		return;
+	}
 
 	float normFactor_v1 = (float)noValidPoints_old / (float)noTotalPoints;
 	float normFactor_v2 = (float)noValidPoints_old / (float)noValidPointsMax;
@@ -244,6 +269,7 @@ void ITMDepthTracker::TrackCamera(ITMTrackingState *trackingState, const ITMView
 	float hessian_good[6 * 6], hessian_new[6 * 6], A[6 * 6];
 	float nabla_good[6], nabla_new[6];
 	float step[6];
+	bool numericalFailure = false;
 
 	for (int i = 0; i < 6 * 6; ++i) hessian_good[i] = 0.0f;
 	for (int i = 0; i < 6; ++i) nabla_good[i] = 0.0f;
@@ -284,15 +310,30 @@ void ITMDepthTracker::TrackCamera(ITMTrackingState *trackingState, const ITMView
 
 			// compute a new step and make sure we've got an SE3
 			ComputeDelta(step, nabla_good, A, iterationType != TRACKER_ITERATION_BOTH);
+			if (!finiteDepthStep(step)) {
+				trackingState->pose_d->SetFrom(&lastKnownGoodPose);
+				numericalFailure = true;
+				break;
+			}
 			ApplyDelta(approxInvPose, step, approxInvPose);
 			trackingState->pose_d->SetInvM(approxInvPose);
 			trackingState->pose_d->Coerce();
 			approxInvPose = trackingState->pose_d->GetInvM();
+			if (!finiteDepthMatrix(approxInvPose)) {
+				trackingState->pose_d->SetFrom(&lastKnownGoodPose);
+				numericalFailure = true;
+				break;
+			}
 
 			// if step is small, assume it's going to decrease the error and finish
 			if (HasConverged(step)) break;
 		}
+		if (numericalFailure) break;
 	}
 
 	this->UpdatePoseQuality(noValidPoints_old, hessian_good, f_old);
+	if (numericalFailure) {
+		trackingState->trackerResult = ITMTrackingState::TRACKING_FAILED;
+		trackingState->trackerScore = std::numeric_limits<float>::infinity();
+	}
 }

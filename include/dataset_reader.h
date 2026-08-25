@@ -5,6 +5,7 @@
 #include <vector>
 #include <random>
 #include <algorithm>
+#include <cstdint>
 
 #include <torch/torch.h>
 #include <nlohmann/json.hpp>
@@ -35,8 +36,11 @@ private:
     bool useProbabilities;
 
 public:
-    RandomSelector(const std::vector<T> &vec, const std::vector<double> &probs = {})
-        : gen(std::random_device{}()), dis(0.0, 1.0)
+    RandomSelector(const std::vector<T> &vec,
+                   const std::vector<double> &probs = {},
+                   uint32_t seed = 0,
+                   bool deterministic = false)
+        : gen(deterministic ? seed : std::random_device{}()), dis(0.0, 1.0)
     {
         original.reserve(vec.size());
         for (size_t i = 0; i < vec.size(); ++i)
@@ -117,21 +121,31 @@ struct Camera
     float fy = 0;
     float cx = 0;
     float cy = 0;
-    bool has_depth;
+    bool has_depth = false;
     torch::Tensor image;
     torch::Tensor c2w;      // camera to world transform (gt)
     torch::Tensor c2w_slam; // camera to world transform (slam estiamted)
+    torch::Tensor c2w_local; // camera to owner TSDF submap transform
+    bool has_local_pose = false;
     torch::Tensor depth;
+    int owner_submap_id = 0;
+    std::vector<int> overlap_submap_ids;
 
     torch::Tensor K;
     std::string imgFilePath = "";
     std::string depthFilePath = "";
+    std::string frame_id_str = "";
+    float load_downscale_factor = 1.0f;
+    float load_depth_scale = 1.0f;
+    bool release_after_frame = false;
+    bool load_geometry_initialized = false;
 
     Camera() {};
 
     Camera(int width, int height, float fx, float fy, float cx, float cy, bool has_depth, const torch::Tensor &c2w, const std::string &imgFilePath = "", const std::string &depthFilePath = "") : width(width), height(height), fx(fx), fy(fy), cx(cx), cy(cy), has_depth(has_depth), c2w(c2w), imgFilePath(imgFilePath), depthFilePath(depthFilePath)
     {
         c2w_slam = c2w;
+        c2w_local = c2w;
         K = torch::tensor({{fx, 0.0f, cx},
                            {0.0f, fy, cy},
                            {0.0f, 0.0f, 1.0f}},
@@ -145,6 +159,22 @@ struct Camera
 
     torch::Tensor loadDepth(float downscale_factor, float depth_scale);
 
+    void ensureLoaded()
+    {
+        if (!image.defined())
+            image = loadImage(load_downscale_factor);
+        if (has_depth && !depth.defined())
+            depth = loadDepth(load_downscale_factor, load_depth_scale);
+    }
+
+    void releaseImages()
+    {
+        if (!release_after_frame)
+            return;
+        image = torch::Tensor();
+        depth = torch::Tensor();
+    }
+
     TensorDict getFrameMaps() const;
 
     void toGPU()
@@ -153,6 +183,7 @@ struct Camera
         image = image.to(device);
         c2w = c2w.to(device);
         c2w_slam = c2w_slam.to(device);
+        c2w_local = c2w_local.to(device);
         depth = depth.to(device);
         K = K.to(device);
     }
@@ -163,6 +194,7 @@ struct Camera
         image = image.to(device);
         c2w = c2w.to(device);
         c2w_slam = c2w_slam.to(device);
+        c2w_local = c2w_local.to(device);
         depth = depth.to(device);
         K = K.to(device);
     }
@@ -183,6 +215,12 @@ public:
     int width, height;
     float downscale_factor;
     std::string input_dir;
+    std::string image_prefix = "frame";
+    std::string image_extension = ".jpg";
+    std::string depth_prefix = "depth";
+    std::string depth_extension = ".png";
+    std::string pose_prefix = "pose";
+    std::string pose_extension = ".txt";
     // 相机数据序列
     std::vector<Camera> train_vec = std::vector<Camera>();
     std::vector<Camera> val_vec = std::vector<Camera>();
@@ -202,6 +240,8 @@ public:
     std::vector<Camera> getAllCams();
 
     void savePose(const std::string &save_dir);
+
+    bool loadSlamPose(const std::string &pose_dir);
 };
 
 #endif // DATASET_READER_H

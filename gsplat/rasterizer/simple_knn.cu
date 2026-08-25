@@ -183,9 +183,23 @@ __global__ void boxMeanDist(uint32_t P, float3 *points, uint32_t *indices, MinMa
             updateKBest<3>(point, points[indices[i]], best);
         }
     }
+    float finite_best = FLT_MAX;
+    for (int j = 0; j < 3; ++j)
+    {
+        if (best[j] < FLT_MAX * 0.5f)
+            finite_best = min(finite_best, best[j]);
+    }
+    if (finite_best == FLT_MAX)
+    {
+        dists[indices[idx]] = 0.0f;
+        return;
+    }
+    for (int j = 0; j < 3; ++j)
+    {
+        if (best[j] >= FLT_MAX * 0.5f)
+            best[j] = finite_best;
+    }
     dists[indices[idx]] = (best[0] + best[1] + best[2]) / 3.0f;
-    if (indices[idx] == 0)
-        printf("best: %f, %f, %f\n", best[0], best[1], best[2]);
 }
 
 void knn(int P, float3 *points, float *meanDists)
@@ -233,6 +247,8 @@ distCUDA2(const torch::Tensor &points)
 
     auto float_opts = points.options().dtype(torch::kFloat32);
     torch::Tensor means = torch::full({P}, 0.0, float_opts);
+    if (P < 2)
+        return means;
 
     knn(P, (float3 *)points.contiguous().data_ptr<float>(), means.contiguous().data_ptr<float>());
 

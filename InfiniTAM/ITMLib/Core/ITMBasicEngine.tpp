@@ -8,13 +8,192 @@
 #include "../Engines/Visualisation/ITMVisualisationEngineFactory.h"
 #include "../Objects/RenderStates/ITMRenderStateFactory.h"
 #include "../Trackers/ITMTrackerFactory.h"
+#include "../Utils/ITMTrackingFailurePolicy.h"
 
 #include "../../ORUtils/NVTimer.h"
 #include "../../ORUtils/FileUtils.h"
 
+#include <algorithm>
+#include <cmath>
+#include <limits>
+
 // #define OUTPUT_TRAJECTORY_QUATERNIONS
 
 using namespace ITMLib;
+
+static bool basicEngineIsFiniteMatrix(const ORUtils::Matrix4<float> &matrix)
+{
+	for (int i = 0; i < 16; ++i)
+	{
+		if (!std::isfinite(matrix.m[i])) return false;
+	}
+	return true;
+}
+
+static bool basicEngineIsFinitePose(const ORUtils::SE3Pose &pose)
+{
+	return basicEngineIsFiniteMatrix(pose.GetM()) && basicEngineIsFiniteMatrix(pose.GetInvM());
+}
+
+template <typename TVoxel, typename TIndex>
+void ITMBasicEngine<TVoxel, TIndex>::configureTrackingDiagnostics(int startFrame, int endFrame, const std::string &csvPath)
+{
+	trackingDiagnosticStartFrame = startFrame;
+	trackingDiagnosticEndFrame = endFrame;
+	if (trackingDiagnosticEndFrame < trackingDiagnosticStartFrame ||
+		trackingDiagnosticStartFrame < 0 || csvPath.empty())
+	{
+		if (trackingDiagnosticLog.is_open()) trackingDiagnosticLog.close();
+		trackingDiagnosticStartFrame = -1;
+		trackingDiagnosticEndFrame = -1;
+		return;
+	}
+	trackingDiagnosticLog.open(csvPath.c_str());
+	if (!trackingDiagnosticLog)
+	{
+		fprintf(stdout, "[BASIC TRACKING DIAG] failed_to_open path=%s\n", csvPath.c_str());
+		trackingDiagnosticStartFrame = -1;
+		trackingDiagnosticEndFrame = -1;
+		return;
+	}
+	trackingDiagnosticLog
+		<< "frame,stage,tracker_result,did_fusion,pose_finite,pose_translation_norm,"
+		<< "depth_valid,depth_nonfinite,depth_min,depth_max,depth_mean,"
+		<< "depth_normal_finite,depth_normal_nonfinite,"
+		<< "raycast_finite,raycast_nonfinite,raycast_valid_w,raycast_min_z,raycast_max_z,raycast_mean_z\n";
+	trackingDiagnosticLog.flush();
+}
+
+template <typename TVoxel, typename TIndex>
+bool ITMBasicEngine<TVoxel, TIndex>::shouldLogTrackingDiagnostics(int frameNo) const
+{
+	return trackingDiagnosticLog.is_open() &&
+		frameNo >= trackingDiagnosticStartFrame &&
+		frameNo <= trackingDiagnosticEndFrame;
+}
+
+template <typename TVoxel, typename TIndex>
+void ITMBasicEngine<TVoxel, TIndex>::logTrackingDiagnostics(int frameNo, const char *stage,
+	ITMTrackingState::TrackingResult trackerResult, bool didFusion)
+{
+	if (!shouldLogTrackingDiagnostics(frameNo)) return;
+
+	int depthValid = 0, depthNonFinite = 0;
+	float depthMin = std::numeric_limits<float>::infinity();
+	float depthMax = 0.0f;
+	double depthSum = 0.0;
+	if (view != NULL && view->depth != NULL)
+	{
+		view->depth->UpdateHostFromDevice();
+		const float *depth = view->depth->GetData(MEMORYDEVICE_CPU);
+		if (depth != NULL)
+		{
+			for (size_t i = 0; i < view->depth->dataSize; ++i)
+			{
+				const float d = depth[i];
+				if (!std::isfinite(d))
+				{
+					++depthNonFinite;
+					continue;
+				}
+				if (d <= 0.0f) continue;
+				++depthValid;
+				depthSum += d;
+				depthMin = std::min(depthMin, d);
+				depthMax = std::max(depthMax, d);
+			}
+		}
+	}
+	if (depthValid == 0) depthMin = 0.0f;
+	const double depthMean = depthValid > 0 ? depthSum / double(depthValid) : 0.0;
+
+	int normalFinite = 0, normalNonFinite = 0;
+	if (view != NULL && view->depthNormal != NULL)
+	{
+		view->depthNormal->UpdateHostFromDevice();
+		const Vector4f *normals = view->depthNormal->GetData(MEMORYDEVICE_CPU);
+		if (normals != NULL)
+		{
+			for (size_t i = 0; i < view->depthNormal->dataSize; ++i)
+			{
+				const Vector4f &n = normals[i];
+				if (std::isfinite(n.x) && std::isfinite(n.y) &&
+					std::isfinite(n.z) && std::isfinite(n.w))
+					++normalFinite;
+				else
+					++normalNonFinite;
+			}
+		}
+	}
+
+	int raycastFinite = 0, raycastNonFinite = 0, raycastValidW = 0;
+	float raycastMinZ = std::numeric_limits<float>::infinity();
+	float raycastMaxZ = 0.0f;
+	double raycastSumZ = 0.0;
+	if (renderState_live != NULL && renderState_live->raycastResult != NULL)
+	{
+		ITMFloat4Image raycastCpu(renderState_live->raycastResult->noDims, true, false);
+		const ORUtils::MemoryBlock<Vector4f>::MemoryCopyDirection copyDirection =
+			settings->deviceType == ITMLibSettings::DEVICE_CUDA
+				? ORUtils::MemoryBlock<Vector4f>::CUDA_TO_CPU
+				: ORUtils::MemoryBlock<Vector4f>::CPU_TO_CPU;
+		raycastCpu.SetFrom(renderState_live->raycastResult, copyDirection);
+		const Vector4f *raycast = raycastCpu.GetData(MEMORYDEVICE_CPU);
+		if (raycast != NULL)
+		{
+			for (size_t i = 0; i < raycastCpu.dataSize; ++i)
+			{
+				const Vector4f &p = raycast[i];
+				if (std::isfinite(p.x) && std::isfinite(p.y) &&
+					std::isfinite(p.z) && std::isfinite(p.w))
+				{
+					++raycastFinite;
+					if (p.w > 0.0f)
+					{
+						++raycastValidW;
+						raycastSumZ += p.z;
+						raycastMinZ = std::min(raycastMinZ, p.z);
+						raycastMaxZ = std::max(raycastMaxZ, p.z);
+					}
+				}
+				else
+				{
+					++raycastNonFinite;
+				}
+			}
+		}
+	}
+	if (raycastValidW == 0) raycastMinZ = 0.0f;
+	const double raycastMeanZ = raycastValidW > 0 ? raycastSumZ / double(raycastValidW) : 0.0;
+
+	const bool poseFinite = basicEngineIsFinitePose(*(trackingState->pose_d));
+	const ORUtils::Matrix4<float> c2w = trackingState->pose_d->GetInvM();
+	const float tx = c2w.m[3];
+	const float ty = c2w.m[7];
+	const float tz = c2w.m[11];
+	const float poseTranslationNorm = std::sqrt(tx * tx + ty * ty + tz * tz);
+
+	trackingDiagnosticLog << frameNo << ","
+		<< (stage == NULL ? "" : stage) << ","
+		<< trackerResult << ","
+		<< (didFusion ? 1 : 0) << ","
+		<< (poseFinite ? 1 : 0) << ","
+		<< poseTranslationNorm << ","
+		<< depthValid << ","
+		<< depthNonFinite << ","
+		<< depthMin << ","
+		<< depthMax << ","
+		<< depthMean << ","
+		<< normalFinite << ","
+		<< normalNonFinite << ","
+		<< raycastFinite << ","
+		<< raycastNonFinite << ","
+		<< raycastValidW << ","
+		<< raycastMinZ << ","
+		<< raycastMaxZ << ","
+		<< raycastMeanZ << "\n";
+	trackingDiagnosticLog.flush();
+}
 
 template <typename TVoxel, typename TIndex>
 ITMBasicEngine<TVoxel, TIndex>::ITMBasicEngine(const ITMLibSettings *settings, const ITMRGBDCalib &calib, Vector2i imgSize_rgb, Vector2i imgSize_d)
@@ -260,44 +439,63 @@ static void QuaternionFromRotationMatrix(const double *matrix, double *q)
 template <typename TVoxel, typename TIndex>
 ITMTrackingState::TrackingResult ITMBasicEngine<TVoxel, TIndex>::ProcessFrame(ITMUChar4Image *rgbImage, ITMShortImage *rawDepthImage, ITMIMUMeasurement *imuMeasurement)
 {
+	lastPoseRollback = false;
+	lastFusionSuppressed = false;
 	// prepare image and turn it into a depth image
 	if (imuMeasurement == NULL)
 		viewBuilder->UpdateView(&view, rgbImage, rawDepthImage, settings->useBilateralFilter);
 	else
 		viewBuilder->UpdateView(&view, rgbImage, rawDepthImage, settings->useBilateralFilter, imuMeasurement);
+	const int inputFrameNo = framesProcessed;
 
 	if (!mainProcessingActive)
 		return ITMTrackingState::TRACKING_FAILED;
 
 	// tracking
 	ORUtils::SE3Pose oldPose(*(trackingState->pose_d));
+	const bool oldPoseFinite = basicEngineIsFinitePose(oldPose);
 	if (trackingActive)
 		trackingController->Track(trackingState, view);
 	else
 	{
 		trackingState->pose_d->SetInvM(*(gtC2wPoses[framesProcessed]));
 		trackingState->pose_d->Coerce();
+		trackingState->trackerResult = ITMTrackingState::TRACKING_GOOD;
 	}
-
-	// 设置tracking的结果
-	// 1. 对于默认模式IGNORE来说，始终设置为TRACKING_GOOD继续fusion
-	// 2. 对于RELOCALISE来说，直接设置为tracker的结果
-	// 3. 对于STOP_INTEGRATION，会把TRACKING_FAILED设置为TRACKING_POOR
-	ITMTrackingState::TrackingResult trackerResult = ITMTrackingState::TRACKING_GOOD;
-	switch (settings->behaviourOnFailure)
+	if (rejectNonFiniteTrackingPose && !basicEngineIsFinitePose(*(trackingState->pose_d)))
 	{
-	case ITMLibSettings::FAILUREMODE_RELOCALISE:
-		trackerResult = trackingState->trackerResult;
-		break;
-	case ITMLibSettings::FAILUREMODE_STOP_INTEGRATION:
-		if (trackingState->trackerResult != ITMTrackingState::TRACKING_FAILED)
-			trackerResult = trackingState->trackerResult;
-		else
-			trackerResult = ITMTrackingState::TRACKING_POOR;
-		break;
-	default:
-		break;
+		trackingState->trackerResult = ITMTrackingState::TRACKING_FAILED;
+		if (oldPoseFinite)
+		{
+			*(trackingState->pose_d) = oldPose;
+			lastPoseRollback = true;
+		}
+		fprintf(stdout,
+			"[BASIC TRACKING] non_finite_pose_reject frame=%d old_pose_finite=%d\n",
+			framesProcessed, oldPoseFinite ? 1 : 0);
 	}
+	logTrackingDiagnostics(inputFrameNo, "post_track_pre_fusion",
+		trackingState->trackerResult, false);
+
+	lastRawTrackingResult = trackingState->trackerResult;
+	ITMTrackingFailureDecision failureDecision =
+		DecideTrackingFailure(trackingState->trackerResult, settings->behaviourOnFailure);
+	ITMTrackingState::TrackingResult trackerResult = failureDecision.policyResult;
+	if (failureDecision.rollbackPose)
+	{
+		if (oldPoseFinite)
+		{
+			*(trackingState->pose_d) = oldPose;
+			lastPoseRollback = true;
+		}
+		else
+		{
+			trackerResult = ITMTrackingState::TRACKING_FAILED;
+			failureDecision.policyResult = trackerResult;
+		}
+	}
+	lastFusionSuppressed = failureDecision.suppressFusion;
+	lastPolicyTrackingResult = trackerResult;
 
 	// relocalisation
 	int addKeyframeIdx = -1;
@@ -329,13 +527,18 @@ ITMTrackingState::TrackingResult ITMBasicEngine<TVoxel, TIndex>::ProcessFrame(IT
 			trackingController->Track(trackingState, view);
 
 			trackerResult = trackingState->trackerResult;
+			failureDecision = DecideTrackingFailure(trackerResult, settings->behaviourOnFailure);
+			lastFusionSuppressed = failureDecision.suppressFusion;
+			lastPolicyTrackingResult = trackerResult;
 		}
 	}
 
 	// std::cout << "estimated_pose:\n"
 	// 		  << trackingState->pose_d->GetInvM() << std::endl;
 	bool didFusion = false;
-	if ((trackerResult == ITMTrackingState::TRACKING_GOOD || !trackingInitialised) && (fusionActive) && (relocalisationCount == 0))
+	const bool bootstrapFusionAllowed = !trackingInitialised && !lastFusionSuppressed;
+	if ((trackerResult == ITMTrackingState::TRACKING_GOOD || bootstrapFusionAllowed) &&
+		(fusionActive) && (relocalisationCount == 0) && !lastFusionSuppressed)
 	{
 		// fusion
 		denseMapper->ProcessFrame(view, trackingState, scene, renderState_live);
@@ -343,7 +546,6 @@ ITMTrackingState::TrackingResult ITMBasicEngine<TVoxel, TIndex>::ProcessFrame(IT
 		if (framesProcessed > 50)
 			trackingInitialised = true;
 
-		framesProcessed++;
 	}
 
 	if (trackerResult == ITMTrackingState::TRACKING_GOOD || trackerResult == ITMTrackingState::TRACKING_POOR)
@@ -353,6 +555,7 @@ ITMTrackingState::TrackingResult ITMBasicEngine<TVoxel, TIndex>::ProcessFrame(IT
 
 		// raycast to renderState_live for tracking and free visualisation
 		trackingController->Prepare(trackingState, scene, view, visualisationEngine, renderState_live);
+		logTrackingDiagnostics(inputFrameNo, "post_prepare", trackerResult, didFusion);
 
 		if (addKeyframeIdx >= 0)
 		{
@@ -381,6 +584,7 @@ ITMTrackingState::TrackingResult ITMBasicEngine<TVoxel, TIndex>::ProcessFrame(IT
 	// 记录相机内外参
 	camPoses.emplace_back(*(trackingState->pose_d));
 	camIntrincs.emplace_back(view->calib.intrinsics_d);
+	framesProcessed++;
 	return trackerResult;
 }
 

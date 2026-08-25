@@ -90,6 +90,8 @@ void ITMVisualisationEngine_CUDA<TVoxel, ITMVoxelBlockHash>::FindVisibleBlocks(c
 			}*/
 
 	ORcudaSafeCall(cudaMemcpy(&renderState_vh->noVisibleEntries, noVisibleEntries_device, sizeof(int), cudaMemcpyDeviceToHost));
+	if (renderState_vh->noVisibleEntries > SDF_LOCAL_BLOCK_NUM)
+		renderState_vh->noVisibleEntries = SDF_LOCAL_BLOCK_NUM;
 }
 
 template <class TVoxel, class TIndex>

@@ -8,6 +8,30 @@ Abstract: *While recent Gaussian-based SLAM methods achieve photorealistic recon
 Our representation enables significant Gaussian reduction (50\% fewer) by avoiding full-scene Gaussian modeling, and efficient Gaussian optimization (75\% fewer iterations) through targeted appearance refinement.
 Building upon this representation, we develop GPS-SLAM (Gaussian-plus-SDF SLAM), a real-time 3D reconstruction system achieving over 150 fps on real-world Azure Kinect sequences, faster by an order-of-magnitude than state-of-the-art techniques while maintaining comparable reconstruction quality.*
 
+## Research Branch Notes
+This working tree contains opt-in research extensions for MultiEngine SDF
+submaps, local Gaussian submaps, bounded residency, and online pose-graph loop
+closure experiments. The original BasicEngine/unified-Gaussian path is preserved
+as the baseline.
+
+Start with these local guides before modifying or running the research path:
+
+- `docs/README.md`: documentation index.
+- `docs/hybrid_submap_config_guide.md`: all new config toggles and runner
+  profiles.
+- `docs/hybrid_submap_development_log.md`: chronological implementation and
+  experiment log.
+- `docs/experiment_outputs_guide.md`: where current summaries and archived
+  outputs live.
+- `run/README.md`: runner entry points and which scripts are canonical.
+- `scripts/README.md`: dataset, metric, and diagnostic scripts.
+- `THOR_TRANSFER_GUIDE.md`: Jetson AGX Thor installation, native build,
+  smoke-test, profiling, and troubleshooting handoff.
+
+Generated experiment configs live under `configs/experiments/` and are ignored
+by Git. Bulky run artifacts live under `output/` or the external dataset drive
+paths documented in `docs/experiment_outputs_guide.md`.
+
 
 ## News
 **[2025.10.18]** We prepare to release the code. We apologize that some features are not yet ready, mainly including online visualization tools and stable multithread running. However, the current version is sufficient to support the conclusions in our paper and to reproduce the experimental results. We will continue to improve GPS-SLAM in the future.

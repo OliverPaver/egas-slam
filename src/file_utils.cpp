@@ -1,6 +1,88 @@
 #include "file_utils.h"
 
+#include <cstdlib>
+#include <stdexcept>
+
 namespace fs = std::filesystem;
+
+namespace
+{
+fs::path normalizedAbsolutePath(const fs::path &path)
+{
+    return fs::weakly_canonical(fs::absolute(path));
+}
+
+bool pathContains(const fs::path &parent, const fs::path &child)
+{
+    const fs::path relative = child.lexically_relative(parent);
+    if (relative.empty())
+        return false;
+    const auto first = relative.begin();
+    return first == relative.end() || *first != "..";
+}
+
+unsigned long long getCudaMemoryUsage()
+{
+    size_t free_bytes = 0;
+    size_t total_bytes = 0;
+    const cudaError_t result = cudaMemGetInfo(&free_bytes, &total_bytes);
+    if (result != cudaSuccess)
+    {
+        std::cerr << "Failed to query CUDA memory: " << cudaGetErrorString(result) << "\n";
+        return ULLONG_MAX;
+    }
+    return static_cast<unsigned long long>((total_bytes - free_bytes) / (1024 * 1024));
+}
+
+void validateWorkspacePath(const fs::path &workspace,
+                           const fs::path &config_filename,
+                           const YAML::Node &config)
+{
+    if (workspace.empty())
+        throw std::runtime_error("workspace_dir must not be empty");
+
+    const fs::path resolved_workspace = normalizedAbsolutePath(workspace);
+    const fs::path resolved_root = resolved_workspace.root_path();
+    if (resolved_workspace == resolved_root)
+        throw std::runtime_error("Refusing to clear filesystem root as workspace_dir");
+    if (fs::exists(resolved_workspace) && !fs::is_directory(resolved_workspace))
+        throw std::runtime_error("workspace_dir exists but is not a directory: " + resolved_workspace.string());
+
+    const fs::path resolved_config = normalizedAbsolutePath(config_filename);
+    if (pathContains(resolved_workspace, resolved_config))
+        throw std::runtime_error(
+            "Refusing to clear workspace_dir because it contains the active config: " +
+            resolved_workspace.string());
+
+    const fs::path resolved_cwd = normalizedAbsolutePath(fs::current_path());
+    if (pathContains(resolved_workspace, resolved_cwd) ||
+        pathContains(resolved_cwd, resolved_workspace))
+        throw std::runtime_error(
+            "Refusing to clear workspace_dir because it overlaps the current/project directory: " +
+            resolved_workspace.string());
+
+    if (const char *home_value = std::getenv("HOME"))
+    {
+        const fs::path resolved_home = normalizedAbsolutePath(home_value);
+        if (resolved_workspace == resolved_home || pathContains(resolved_workspace, resolved_home))
+            throw std::runtime_error("Refusing to clear the user home directory or its parent as workspace_dir");
+    }
+
+    if (config["READER"] && config["READER"]["input_dir"])
+    {
+        const fs::path input_dir = config["READER"]["input_dir"].as<std::string>();
+        if (!input_dir.empty())
+        {
+            const fs::path resolved_input = normalizedAbsolutePath(input_dir);
+            if (pathContains(resolved_workspace, resolved_input) ||
+                pathContains(resolved_input, resolved_workspace))
+                throw std::runtime_error(
+                    "Refusing workspace_dir that overlaps READER.input_dir: " +
+                    resolved_workspace.string());
+        }
+    }
+}
+}
 
 ///////////////// EIGEN LOAD AND SAVE /////////////////
 
@@ -150,12 +232,18 @@ std::string idToFilename(int frame_id)
 void createWorkSpace(const std::string &config_filename)
 {
     YAML::Node config = YAML::LoadFile(config_filename);
-    auto workspace_dir = config["workspace_dir"].as<std::string>();
-    createDirectory(workspace_dir, true);
+    const fs::path workspace_dir = config["workspace_dir"].as<std::string>();
+    validateWorkspacePath(workspace_dir, config_filename, config);
+    if (!createDirectory(workspace_dir.string(), true))
+        throw std::runtime_error("Could not create workspace_dir: " + workspace_dir.string());
+    std::ofstream marker(workspace_dir / ".gps_slam_workspace");
+    marker << "Managed by GPS-SLAM. This directory may be cleared at run startup.\n";
+    marker.close();
+    if (!marker)
+        throw std::runtime_error("Could not write workspace ownership marker: " + workspace_dir.string());
     // copy config file
     fs::path source = fs::path(config_filename);
-    fs::path target_dir = config["workspace_dir"].as<std::string>();
-    fs::path target = target_dir / source.filename();
+    fs::path target = workspace_dir / source.filename();
     fs::copy_file(source, target, fs::copy_options::overwrite_existing);
 }
 
@@ -171,6 +259,7 @@ void saveCfgArgs(const std::string &file_name, int maxSH)
 // Function to get the memory usage of the GPU
 unsigned long long getGPUMemoryUsage(int gpu_id)
 {
+#ifdef GPS_SLAM_HAS_NVML
     nvmlReturn_t result;
     nvmlDevice_t device;
     nvmlMemory_t memory;
@@ -179,26 +268,29 @@ unsigned long long getGPUMemoryUsage(int gpu_id)
     result = nvmlInit();
     if (NVML_SUCCESS != result)
     {
-        std::cerr << "Failed to initialize NVML: " << nvmlErrorString(result) << "\n";
-        return ULLONG_MAX;
+        std::cerr << "Failed to initialize NVML: " << nvmlErrorString(result)
+                  << "; falling back to cudaMemGetInfo\n";
+        return getCudaMemoryUsage();
     }
 
     // Get the GPU handle
     result = nvmlDeviceGetHandleByIndex(gpu_id, &device);
     if (NVML_SUCCESS != result)
     {
-        std::cerr << "Failed to get handle for device " << std::to_string(gpu_id) << ": " << nvmlErrorString(result) << "\n";
+        std::cerr << "Failed to get handle for device " << std::to_string(gpu_id) << ": "
+                  << nvmlErrorString(result) << "; falling back to cudaMemGetInfo\n";
         nvmlShutdown();
-        return ULLONG_MAX;
+        return getCudaMemoryUsage();
     }
 
     // Get memory information
     result = nvmlDeviceGetMemoryInfo(device, &memory);
     if (NVML_SUCCESS != result)
     {
-        std::cerr << "Failed to get memory info: " << nvmlErrorString(result) << "\n";
+        std::cerr << "Failed to get memory info: " << nvmlErrorString(result)
+                  << "; falling back to cudaMemGetInfo\n";
         nvmlShutdown();
-        return ULLONG_MAX;
+        return getCudaMemoryUsage();
     }
 
     auto used_gpu_memory = memory.used / (1024 * 1024);
@@ -207,6 +299,10 @@ unsigned long long getGPUMemoryUsage(int gpu_id)
     nvmlShutdown();
 
     return used_gpu_memory;
+#else
+    (void)gpu_id;
+    return getCudaMemoryUsage();
+#endif
 }
 
 double calculateTimeInterval(struct timespec start, struct timespec end)

@@ -196,6 +196,8 @@ void ITMSceneReconstructionEngine_CUDA<TVoxel, ITMVoxelBlockHash>::AllocateScene
 
 	ORcudaSafeCall(cudaMemcpy(tempData, allocationTempData_device, sizeof(AllocationTempData), cudaMemcpyDeviceToHost));
 	renderState_vh->noVisibleEntries = tempData->noVisibleEntries;
+	if (renderState_vh->noVisibleEntries > SDF_LOCAL_BLOCK_NUM)
+		renderState_vh->noVisibleEntries = SDF_LOCAL_BLOCK_NUM;
 	scene->localVBA.lastFreeBlockId = tempData->noAllocatedVoxelEntries;
 	scene->index.SetLastFreeExcessListId(tempData->noAllocatedExcessEntries);
 }
@@ -541,12 +543,12 @@ namespace
 
 		__syncthreads();
 
-		if (shouldPrefix)
-		{
-			int offset = computePrefixSum_device<int>(hashVisibleType > 0, &allocData->noVisibleEntries, blockDim.x * blockDim.y, threadIdx.x);
-			if (offset != -1)
-				visibleEntryIDs[offset] = targetIdx;
-		}
+	if (shouldPrefix)
+	{
+		int offset = computePrefixSum_device<int>(hashVisibleType > 0, &allocData->noVisibleEntries, blockDim.x * blockDim.y, threadIdx.x);
+		if (offset != -1 && offset < SDF_LOCAL_BLOCK_NUM)
+			visibleEntryIDs[offset] = targetIdx;
+	}
 
 #if 0
 	// "active list": blocks that have new information from depth image

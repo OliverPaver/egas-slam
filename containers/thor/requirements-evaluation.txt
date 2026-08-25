@@ -1,0 +1,5 @@
+# Pure-Python mesh loader used by scripts/geo_general.py. NumPy and SciPy are
+# provided by the NVIDIA image/Ubuntu packages. Keep the wheel hash pinned so
+# geometry acceptance cannot change with the package index.
+trimesh==4.12.2 \
+    --hash=sha256:b5b5afa63c5272345f2858f7676bc8c217dc8a89f4fadf6193fe10a81b5ff2aa

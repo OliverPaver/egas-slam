@@ -208,8 +208,17 @@ __global__ void filterDepth_device(float *imageData_out, const float *imageData_
 {
 	int x = threadIdx.x + blockIdx.x * blockDim.x, y = threadIdx.y + blockIdx.y * blockDim.y;
 
-	if (x < 2 || x > imgDims.x - 2 || y < 2 || y > imgDims.y - 2)
+	if (x >= imgDims.x || y >= imgDims.y)
 		return;
+	if (x < 2 || x >= imgDims.x - 2 || y < 2 || y >= imgDims.y - 2)
+	{
+		// Keep a defined two-pixel border. The previous condition admitted
+		// x/y == size-2 (causing an out-of-bounds +2 neighbourhood read) and
+		// left the remaining border unwritten between filtering passes.
+		const int idx = x + y * imgDims.x;
+		imageData_out[idx] = imageData_in[idx];
+		return;
+	}
 
 	filterDepth(imageData_out, imageData_in, x, y, imgDims);
 }
@@ -217,9 +226,11 @@ __global__ void filterDepth_device(float *imageData_out, const float *imageData_
 __global__ void ComputeNormalAndWeight_device(const float *depth_in, Vector4f *normal_out, float *sigmaZ_out, Vector2i imgDims, Vector4f intrinsic)
 {
 	int x = threadIdx.x + blockIdx.x * blockDim.x, y = threadIdx.y + blockIdx.y * blockDim.y;
-	int idx = x + y * imgDims.x;
+	if (x >= imgDims.x || y >= imgDims.y)
+		return;
 
-	if (x < 2 || x > imgDims.x - 2 || y < 2 || y > imgDims.y - 2)
+	int idx = x + y * imgDims.x;
+	if (x < 2 || x >= imgDims.x - 2 || y < 2 || y >= imgDims.y - 2)
 	{
 		normal_out[idx].w = -1.0f;
 		sigmaZ_out[idx] = -1;

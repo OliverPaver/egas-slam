@@ -13,6 +13,9 @@
 
 #include "../../FernRelocLib/Relocaliser.h"
 
+#include <fstream>
+#include <string>
+
 namespace ITMLib
 {
 	template <typename TVoxel, typename TIndex>
@@ -57,6 +60,10 @@ namespace ITMLib
 		// 原始函数
 		ITMView *GetView(void) { return view; }
 		ITMTrackingState *GetTrackingState(void) { return trackingState; }
+		int getLastRawTrackingResult(void) const { return lastRawTrackingResult; }
+		int getLastPolicyTrackingResult(void) const { return lastPolicyTrackingResult; }
+		bool getLastPoseRollback(void) const { return lastPoseRollback; }
+		bool getLastFusionSuppressed(void) const { return lastFusionSuppressed; }
 
 		/// Gives access to the internal world representation
 		ITMScene<TVoxel, TIndex> *GetScene(void) { return scene; }
@@ -95,6 +102,12 @@ namespace ITMLib
 		void turnOnIntegration();
 		void turnOffIntegration();
 
+		/// Revert to the previous pose if the tracker generates a non-finite SE3.
+		void setRejectNonFiniteTrackingPose(bool enabled) { rejectNonFiniteTrackingPose = enabled; }
+
+		/// Enable bounded diagnostics for tracker input/raycast health.
+		void configureTrackingDiagnostics(int startFrame, int endFrame, const std::string &csvPath);
+
 		/// switch for turning main processing on/off
 		void turnOnMainProcessing();
 		void turnOffMainProcessing();
@@ -108,5 +121,18 @@ namespace ITMLib
 		*/
 		ITMBasicEngine(const ITMLibSettings *settings, const ITMRGBDCalib &calib, Vector2i imgSize_rgb, Vector2i imgSize_d = Vector2i(-1, -1));
 		~ITMBasicEngine();
+
+	private:
+		bool rejectNonFiniteTrackingPose = false;
+		int lastRawTrackingResult = ITMTrackingState::TRACKING_GOOD;
+		int lastPolicyTrackingResult = ITMTrackingState::TRACKING_GOOD;
+		bool lastPoseRollback = false;
+		bool lastFusionSuppressed = false;
+		int trackingDiagnosticStartFrame = -1;
+		int trackingDiagnosticEndFrame = -1;
+		std::ofstream trackingDiagnosticLog;
+		bool shouldLogTrackingDiagnostics(int frameNo) const;
+		void logTrackingDiagnostics(int frameNo, const char *stage,
+			ITMTrackingState::TrackingResult trackerResult, bool didFusion);
 	};
 }

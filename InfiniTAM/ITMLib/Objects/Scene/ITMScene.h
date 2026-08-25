@@ -2,6 +2,9 @@
 
 #pragma once
 
+#include <filesystem>
+#include <vector>
+
 #include "ITMLocalVBA.h"
 #include "ITMGlobalCache.h"
 #include "../../Utils/ITMSceneParams.h"
@@ -34,10 +37,67 @@ namespace ITMLib
 			index.SaveToDirectory(outputDirectory);
 		}
 
+		void SaveSparseToDirectory(const std::string &outputDirectory) const
+		{
+			localVBA.SaveSparseToDirectory(outputDirectory, usedBlockPtrs());
+			index.SaveToDirectory(outputDirectory);
+		}
+
 		void LoadFromDirectory(const std::string &outputDirectory)
 		{
-			localVBA.LoadFromDirectory(outputDirectory);
+			if (!localVBA.LoadSparseFromDirectory(outputDirectory))
+				localVBA.LoadFromDirectory(outputDirectory);
 			index.LoadFromDirectory(outputDirectory);
+		}
+
+		void CopyFromCUDA(const ITMScene<TVoxel, TIndex> &source)
+		{
+			localVBA.CopyFrom(source.localVBA,
+				ORUtils::MemoryBlock<TVoxel>::CUDA_TO_CPU,
+				ORUtils::MemoryBlock<int>::CUDA_TO_CPU);
+			index.CopyFrom(source.index,
+				ORUtils::MemoryBlock<ITMHashEntry>::CUDA_TO_CPU,
+				ORUtils::MemoryBlock<int>::CUDA_TO_CPU);
+		}
+
+		void CopyFromCPU(const ITMScene<TVoxel, TIndex> &source, MemoryDeviceType targetMemoryType)
+		{
+			if (targetMemoryType == MEMORYDEVICE_CUDA)
+			{
+				localVBA.CopyFrom(source.localVBA,
+					ORUtils::MemoryBlock<TVoxel>::CPU_TO_CUDA,
+					ORUtils::MemoryBlock<int>::CPU_TO_CUDA);
+				index.CopyFrom(source.index,
+					ORUtils::MemoryBlock<ITMHashEntry>::CPU_TO_CUDA,
+					ORUtils::MemoryBlock<int>::CPU_TO_CUDA);
+			}
+			else
+			{
+				localVBA.CopyFrom(source.localVBA,
+					ORUtils::MemoryBlock<TVoxel>::CPU_TO_CPU,
+					ORUtils::MemoryBlock<int>::CPU_TO_CPU);
+				index.CopyFrom(source.index,
+					ORUtils::MemoryBlock<ITMHashEntry>::CPU_TO_CPU,
+					ORUtils::MemoryBlock<int>::CPU_TO_CPU);
+			}
+		}
+
+		std::vector<int> usedBlockPtrs(void) const
+		{
+			const auto *entries = index.GetEntries();
+			const int totalBlocks = index.getNumAllocatedVoxelBlocks();
+			std::vector<unsigned char> seen(static_cast<size_t>(totalBlocks), 0);
+			std::vector<int> usedBlockPtrs;
+			const int estimatedUsedBlocks = totalBlocks - localVBA.lastFreeBlockId - 1;
+			if (estimatedUsedBlocks > 0) usedBlockPtrs.reserve(static_cast<size_t>(estimatedUsedBlocks));
+
+			for (int i = 0; i < TIndex::noTotalEntries; ++i) {
+				const int ptr = entries[i].ptr;
+				if (ptr < 0 || ptr >= totalBlocks || seen[static_cast<size_t>(ptr)]) continue;
+				seen[static_cast<size_t>(ptr)] = 1;
+				usedBlockPtrs.push_back(ptr);
+			}
+			return usedBlockPtrs;
 		}
 
 		ITMScene(const ITMSceneParams *_sceneParams, bool _useSwapping, MemoryDeviceType _memoryType)

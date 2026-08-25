@@ -1,9 +1,13 @@
 #pragma once
 
 #include "raw_gs_model.h"
+#ifdef GPS_SLAM_ENABLE_TENSORBOARD
 #include "tensorboard_logger.h"
+#endif
 #include "file_utils.h"
 #include "cv_utils.h"
+#include <cstdint>
+#include <memory>
 
 class Pipeline
 {
@@ -68,15 +72,22 @@ public:
     // 训练的iterations
     int curr_iter = 0;
     int max_iterations;
+    int random_seed = 42;
     bool enable_densify;
     bool eval_after_train, save_after_train;
+    std::string eval_split = "train";
+    int eval_stride = 1;
+    int eval_max_frames = 0;
+    int eval_start_offset = 0;
     struct timespec start_time, end_time;
 
     YAML::Node config;
     YAML::Node weight_configs; // 权重的有关参数
     YAML::Node vis_configs;    // 可视化图片的有关参数
     // output setting
-    TensorBoardLogger *tb_logger; // tensoboard的记录器
+#ifdef GPS_SLAM_ENABLE_TENSORBOARD
+    std::unique_ptr<TensorBoardLogger> tb_logger; // TensorBoard scalar logger
+#endif
     std::string workspace_dir, model_path, log_path, eval_path, tb_path;
     int log_iter;
 

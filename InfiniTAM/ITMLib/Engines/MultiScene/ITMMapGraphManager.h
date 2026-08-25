@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <vector>
 
 #include "../../Objects/Scene/ITMLocalMap.h"
@@ -34,6 +35,7 @@ namespace ITMLib
 
 		virtual const ORUtils::SE3Pose* getTrackingPose(int localMapId) const = 0;
 		virtual int getLocalMapSize(int localMapId) const = 0;
+		virtual bool getLocalMapBlockBounds(int localMapId, Vector3f &localMin, Vector3f &localMax) const = 0;
 		virtual int countVisibleBlocks(int localMapId, int minBlockId, int maxBlockId, bool invertIDs) const = 0;
 	};
 
@@ -72,7 +74,24 @@ namespace ITMLib
 		const ORUtils::SE3Pose* getTrackingPose(int localMapId) const { return getLocalMap(localMapId)->trackingState->pose_d; }
 
 		int getLocalMapSize(int localMapId) const;
+		bool getLocalMapBlockBounds(int localMapId, Vector3f &localMin, Vector3f &localMax) const;
 		int countVisibleBlocks(int localMapId, int minBlockId, int maxBlockId, bool invertIDs) const;
+		bool isLocalMapResident(int localMapId) const;
+		int countResidentLocalMaps(void) const;
+		int countPendingLocalMapSnapshots(void) const;
+		int countPendingLocalMapPageIns(void) const;
+		int64_t getResidentLocalMapEstimatedBytes(void) const;
+		int64_t getPendingLocalMapSnapshotEstimatedBytes(void) const;
+		int64_t getPendingLocalMapPageInEstimatedBytes(void) const;
+		std::vector<int> getResidentLocalMapIds(void) const;
+		void pageOutLocalMap(int localMapId, const std::string &directory, bool asyncSnapshot = false, bool keepCpuSnapshot = false);
+		void pageInLocalMap(int localMapId);
+		void prefetchLocalMap(int localMapId);
+		bool tryCompleteLocalMapPageIn(int localMapId);
+		const std::string &getLocalMapPageDirectory(int localMapId) const;
+		void waitForLocalMapSnapshot(int localMapId);
+		void waitForLocalMapPageIn(int localMapId);
+		void adoptLocalMapPageSnapshot(int localMapId, const std::string &directory, int blockCount);
 
 		ORUtils::SE3Pose findTransformation(int fromlocalMapId, int tolocalMapId) const;
 	};

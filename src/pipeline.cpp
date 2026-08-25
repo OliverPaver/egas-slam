@@ -1,37 +1,101 @@
 #include "pipeline.h"
 
+#include <cmath>
+#include <stdexcept>
+
 namespace fs = std::filesystem;
+
+namespace
+{
+bool pathContains(const fs::path &parent, const fs::path &child)
+{
+    const fs::path relative = child.lexically_relative(parent);
+    if (relative.empty())
+        return false;
+    const auto first = relative.begin();
+    return first == relative.end() || *first != "..";
+}
+
+std::string workspaceOutputPath(const std::string &workspace_dir,
+                                const YAML::Node &config,
+                                const char *key)
+{
+    if (!config[key])
+        throw std::runtime_error(std::string("Missing PIPE.") + key);
+    const fs::path configured = config[key].as<std::string>();
+    if (configured.empty())
+        throw std::runtime_error(std::string("PIPE.") + key + " must not be empty");
+
+    const fs::path workspace = fs::weakly_canonical(fs::absolute(workspace_dir));
+    const fs::path relative = configured.is_absolute() ? configured.relative_path() : configured;
+    const fs::path output = fs::weakly_canonical(workspace / relative);
+    if (output == workspace || !pathContains(workspace, output))
+        throw std::runtime_error(
+            std::string("PIPE.") + key + " must resolve to a child of workspace_dir");
+    return output.string();
+}
+}
 
 void Pipeline::loadConfig(const YAML::Node &config, const std::string &workspace_dir, bool is_train)
 {
     // std::cout << "loading training pipeline parameters...";
     this->config = config;
     max_iterations = config["max_iterations"].as<int>();
+    random_seed = config["random_seed"] ? config["random_seed"].as<int>() : 42;
+    rng.seed(uint32_t(random_seed));
+    torch::manual_seed(random_seed);
     selected_cam_idx = config["selected_cam_idx"].as<int>();
     enable_densify = config["enable_densify"].as<bool>();
     eval_after_train = config["eval_after_train"].as<bool>();
     save_after_train = config["save_after_train"].as<bool>();
+    eval_split = config["eval_split"] ? config["eval_split"].as<std::string>() : "train";
+    if (eval_split != "train" && eval_split != "val" && eval_split != "all")
+        throw std::runtime_error("PIPE.eval_split must be one of: train, val, all");
+    eval_stride = config["eval_stride"] ? config["eval_stride"].as<int>() : 1;
+    eval_max_frames = config["eval_max_frames"] ? config["eval_max_frames"].as<int>() : 0;
+    eval_start_offset = config["eval_start_offset"] ? config["eval_start_offset"].as<int>() : 0;
+    if (eval_stride < 1)
+        throw std::runtime_error("PIPE.eval_stride must be >= 1");
+    if (eval_max_frames < 0)
+        throw std::runtime_error("PIPE.eval_max_frames must be >= 0");
+    if (eval_start_offset < 0)
+        throw std::runtime_error("PIPE.eval_start_offset must be >= 0");
 
     // output settings
     log_iter = config["log_iter"].as<int>();
     if (log_iter == -1)
         log_iter = max_iterations - 1;
     this->workspace_dir = workspace_dir;
-    model_path = workspace_dir + config["model_path"].as<std::string>();
-    log_path = workspace_dir + config["log_path"].as<std::string>();
-    eval_path = workspace_dir + config["eval_path"].as<std::string>();
+    model_path = workspaceOutputPath(workspace_dir, config, "model_path");
+    log_path = workspaceOutputPath(workspace_dir, config, "log_path");
+    eval_path = workspaceOutputPath(workspace_dir, config, "eval_path");
 
-    tb_path = workspace_dir + "/tensorboard";
+#ifdef GPS_SLAM_ENABLE_TENSORBOARD
+    tb_path = (fs::weakly_canonical(fs::absolute(workspace_dir)) / "tensorboard").string();
+#endif
     weight_configs = config["weight_configs"];
+    const float ssim_weight = weight_configs && weight_configs["ssim_weight"]
+                                  ? weight_configs["ssim_weight"].as<float>()
+                                  : 0.0f;
+    const float depth_weight = weight_configs && weight_configs["depth_weight"]
+                                   ? weight_configs["depth_weight"].as<float>()
+                                   : 0.0f;
+    if (!std::isfinite(ssim_weight) || ssim_weight < 0.0f || ssim_weight > 1.0f)
+        throw std::runtime_error("PIPE.weight_configs.ssim_weight must be finite and in [0, 1]");
+    if (!std::isfinite(depth_weight) || depth_weight < 0.0f)
+        throw std::runtime_error("PIPE.weight_configs.depth_weight must be finite and >= 0");
     vis_configs = config["vis_configs"];
     if (is_train)
     {
         createDirectory(model_path, true);
         createDirectory(log_path, true);
         createDirectory(eval_path, true);
+#ifdef GPS_SLAM_ENABLE_TENSORBOARD
         createDirectory(tb_path, true);
         GOOGLE_PROTOBUF_VERIFY_VERSION;
-        tb_logger = new TensorBoardLogger((fs::path(tb_path) / "tfevents.pb").string());
+        tb_logger = std::make_unique<TensorBoardLogger>(
+            (fs::path(tb_path) / "tfevents.pb").string());
+#endif
     }
 }
 
@@ -129,7 +193,10 @@ void Pipeline::logResults(TensorDict &render_res, TensorDict &log_res, const Cam
 // 记录Dict中的标量到tensorboard里
 void Pipeline::logScalars(TensorDict &scalars, int iter)
 {
+#ifdef GPS_SLAM_ENABLE_TENSORBOARD
     torch::NoGradGuard noGrad;
+    if (!tb_logger)
+        return;
     for (auto &pair : scalars)
     {
         std::string key = pair.first;
@@ -149,6 +216,10 @@ void Pipeline::logScalars(TensorDict &scalars, int iter)
         //     std::cout << key << " tensor numel is not 1!" << std::endl;
         // }
     }
+#else
+    (void)scalars;
+    (void)iter;
+#endif
 }
 
 // 按照原始3dgs的pipeline进行训练
@@ -174,7 +245,7 @@ void Pipeline::rawTrainCams(RawGaussianModel &model, std::vector<Camera> cams)
     model.setParamsDevice(model.device);
     model.setParamsRequireGrad();
     model.initOptimizers(max_iterations, scene_scale);
-    RandomSelector data_loader(cams);
+    RandomSelector data_loader(cams, {}, uint32_t(random_seed), true);
     // 开始优化
     for (; curr_iter < max_iterations; curr_iter++)
     {
@@ -265,7 +336,7 @@ void Pipeline::gesTrainCams(RawGaussianModel &model, std::vector<Camera> cams)
     model.setParamsDevice(model.device);
     model.setParamsRequireGrad();
     model.initOptimizers(max_iterations, scene_scale);
-    RandomSelector data_loader(cams);
+    RandomSelector data_loader(cams, {}, uint32_t(random_seed ^ 0x517cc1b7), true);
 
     std::cout << "start training" << std::endl;
     // 开始优化
@@ -347,6 +418,7 @@ void Pipeline::renderEvalImgs(RawGaussianModel &model, const std::vector<Camera>
 
     for (Camera cam : cams)
     {
+        cam.ensureLoaded();
         TensorDict render_res;
         if (model.getRenderMethod() == "ges")
         {

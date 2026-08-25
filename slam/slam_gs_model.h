@@ -7,5 +7,6 @@ public:
                       TensorDict &frame_maps,
                       const torch::Tensor &sample_mask,
                       float new_gs_sample_ratio,
-                      int frame_num);
+                      int frame_num,
+                      int max_new_gaussians = -1);
 };
