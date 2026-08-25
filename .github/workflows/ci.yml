@@ -1,0 +1,73 @@
+name: source-release-checks
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  hygiene-and-regressions:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out complete history
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Scan Git history for secrets
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install deterministic test dependencies
+        run: python -m pip install --disable-pip-version-check -r requirements-ci.txt
+
+      - name: Install shellcheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y shellcheck
+
+      - name: Check release hygiene and algorithm equivalence
+        run: python tools/release_hygiene.py --algorithm-equivalence thor-paper-20260819-r2-source
+
+      - name: Parse YAML and CFF
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import yaml
+          paths = sorted(Path("configs").rglob("*.yaml")) + [Path("CITATION.cff")]
+          for path in paths:
+              with path.open(encoding="utf-8") as handle:
+                  payload = yaml.safe_load(handle)
+              if not isinstance(payload, dict):
+                  raise SystemExit(f"expected mapping in {path}")
+          print(f"parsed {len(paths)} YAML/CFF files")
+          PY
+
+      - name: Check Python syntax
+        run: python -m compileall -q run scripts tools
+
+      - name: Check shell entrypoints
+        run: |
+          find scripts run containers -name '*.sh' -print0 \
+            | xargs -0 shellcheck --severity=error
+          shellcheck --severity=error build_third_libs.sh download_replica.sh
+
+      - name: Run hardware-independent regressions
+        run: |
+          python scripts/tracking_failure_policy_regression.py
+          python scripts/validation_hardening_regression.py
+          python scripts/metrics_hardening_regression.py
+          python scripts/benchmark_freeze_regression.py
+          python scripts/benchmark_hardening_regression.py
+          python scripts/realtime_hardening_regression.py
+          python scripts/promotion_hardening_regression.py

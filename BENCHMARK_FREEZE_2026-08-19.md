@@ -59,7 +59,7 @@ Validation artifacts are under
 Before every comparison, run:
 
 ```bash
-bash scripts/thor_container.sh freeze-check
+bash scripts/thor_container.sh source-check
 bash scripts/thor_container.sh regressions
 ```
 

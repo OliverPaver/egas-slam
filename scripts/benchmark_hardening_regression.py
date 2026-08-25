@@ -10,6 +10,7 @@ import tempfile
 from pathlib import Path
 
 import yaml
+import benchmark_protocol
 
 from benchmark_protocol import (
     REPLICA_DEPLOYED_QUALITY_V1,
@@ -211,17 +212,27 @@ def test_manifest_round_trip() -> None:
         cfg_path = root / "config.yaml"
         cfg_path.write_text(yaml.safe_dump(cfg, sort_keys=False))
         output = root / "benchmark_manifest.json"
-        write_manifest(
-            output,
-            protocol=REPLICA_PAPER_V1,
-            role="baseline",
-            cfg=cfg,
-            config_path=cfg_path,
-            binary=None,
-            dataset_root=dataset,
-            dataset_hash_mode="inventory",
-            extra={"state": "regression"},
-        )
+        original_freeze = benchmark_protocol.benchmark_freeze_provenance
+        benchmark_protocol.benchmark_freeze_provenance = lambda: {
+            "freeze_id": "regression-fixture",
+            "manifest_sha256": "0" * 64,
+            "functional_digest": "1" * 64,
+            "verified_clean": True,
+        }
+        try:
+            write_manifest(
+                output,
+                protocol=REPLICA_PAPER_V1,
+                role="baseline",
+                cfg=cfg,
+                config_path=cfg_path,
+                binary=None,
+                dataset_root=dataset,
+                dataset_hash_mode="inventory",
+                extra={"state": "regression"},
+            )
+        finally:
+            benchmark_protocol.benchmark_freeze_provenance = original_freeze
         manifest = json.loads(output.read_text())
         require(manifest["protocol"] == REPLICA_PAPER_V1, "manifest protocol")
         require(manifest["protocol_release_status"] == "publication_locked", "manifest protocol status")

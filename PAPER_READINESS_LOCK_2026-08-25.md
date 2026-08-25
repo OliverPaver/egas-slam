@@ -162,6 +162,7 @@ CPU/GPU/SoC thermal-throttle state was zero. The authoritative telemetry is
 - Rejected quality screen: `../thor_runs/r3_quality_screen_20260825/`
 - Continuous soak: `../thor_runs/paper_soak_r2_20260825/`
 
-External runs must start with `bash scripts/thor_container.sh freeze-check` and
+External runs must start with `bash scripts/thor_container.sh source-check`, a
+machine-local freeze verification as described in `REPRODUCIBILITY.md`, and
 `bash scripts/thor_container.sh regressions`. Any functional edit requires a
 new reviewed freeze revision and invalidates direct use of the R2 results.

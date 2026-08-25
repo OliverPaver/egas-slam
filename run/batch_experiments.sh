@@ -1,13 +1,21 @@
-#!/bin/bash
-set -e
+#!/usr/bin/env bash
+set -euo pipefail
 
-PROJECT_ROOT="/home/oliver/NEW_GPS/GPS-SLAM"
-CONFIGS_DIR="$PROJECT_ROOT/configs/experiments"
-OUTPUT_BASE="$PROJECT_ROOT/output/experiments"
-SLAM_TRAINER="$PROJECT_ROOT/build/slam_trainer"
+PROJECT_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+CONFIGS_DIR="${GPS_SLAM_EXPERIMENT_CONFIG_ROOT:-$PROJECT_ROOT/configs/experiments}"
+OUTPUT_BASE="${GPS_SLAM_EXPERIMENT_OUTPUT_ROOT:-$PROJECT_ROOT/output/experiments}"
+BUILD_DIR="${GPS_SLAM_BUILD_DIR:-$PROJECT_ROOT/build}"
+SLAM_TRAINER="$BUILD_DIR/slam_trainer"
 ATE_SCRIPT="$PROJECT_ROOT/scripts/ate_general.py"
-GT_POSE_DIR="$PROJECT_ROOT/data/replica/office0/camera"
+DATA_ROOT="${GPS_SLAM_DATA_ROOT:-$PROJECT_ROOT/data}"
+GT_POSE_DIR="$DATA_ROOT/replica/office0/camera"
 BASE_CONFIG="$PROJECT_ROOT/configs/release/replica/office0_tracking_halfres_fixed.yaml"
+
+if [[ ! -x "$SLAM_TRAINER" ]]; then
+    echo "Missing executable: $SLAM_TRAINER" >&2
+    echo "Set GPS_SLAM_BUILD_DIR or build the project first." >&2
+    exit 1
+fi
 
 mkdir -p "$CONFIGS_DIR" "$OUTPUT_BASE"
 
@@ -17,18 +25,18 @@ echo "name,status,fps,fusion_ms,local_opt_ms,gs_num,valid_frames,total_frames,at
 run_exp() {
     local name="$1"
     shift
-    local overrides="$@"
+    local overrides=("$@")
     local cfg="$CONFIGS_DIR/${name}.yaml"
     local out_dir="$OUTPUT_BASE/$name"
 
     echo ""
     echo "========================================"
     echo "Running: $name"
-    echo "Overrides: $overrides"
+    echo "Overrides: ${overrides[*]}"
     echo "========================================"
 
     # Generate config with Python
-    python3 - "$BASE_CONFIG" "$cfg" "$out_dir" $overrides <<'PYEOF'
+    python3 - "$BASE_CONFIG" "$cfg" "$out_dir" "${overrides[@]}" <<'PYEOF'
 import sys, yaml
 base_path, out_path, ws_dir = sys.argv[1], sys.argv[2], sys.argv[3]
 overrides = sys.argv[4:]

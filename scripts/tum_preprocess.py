@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import shutil
 import tarfile
 import urllib.request
@@ -25,8 +26,10 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 import numpy as np
 
 
-DEFAULT_DATA_ROOT = Path("/media/oliver/B6AC1273AC122DFD/GPS-SLAM-data/tum_rgbd")
-FALLBACK_DATA_ROOT = Path("/media/oliver/New Volume/GPS-SLAM-data/tum_rgbd")
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_DATA_ROOT = (
+    Path(os.environ.get("GPS_SLAM_DATA_ROOT", PROJECT_ROOT / "data")) / "tum_rgbd"
+)
 
 PAPER_SEQUENCES = [
     "rgbd_dataset_freiburg1_desk",
@@ -171,13 +174,7 @@ def interpolate_pose(gt_rows: List[Tuple[float, List[str]]], timestamp: float) -
 
 
 def choose_data_root(root: Optional[Path]) -> Path:
-    if root is not None:
-        return root
-    if DEFAULT_DATA_ROOT.parent.exists():
-        usage = shutil.disk_usage(DEFAULT_DATA_ROOT.parent)
-        if usage.free >= 80 * 1024**3:
-            return DEFAULT_DATA_ROOT
-    return FALLBACK_DATA_ROOT
+    return root if root is not None else DEFAULT_DATA_ROOT
 
 
 def download(sequence: str, raw_root: Path) -> Path:

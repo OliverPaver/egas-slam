@@ -2,12 +2,14 @@
 set -euo pipefail
 
 PROJECT_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-TRANSFER_ROOT=$(cd "${PROJECT_ROOT}/.." && pwd)
 CONTAINER_DIR="${PROJECT_ROOT}/containers/thor"
 IMAGE="${GPS_SLAM_THOR_IMAGE:-gps-slam-thor:pytorch-26.07-jp7.1}"
 ENGINE="${GPS_SLAM_CONTAINER_ENGINE:-docker}"
 USE_SUDO="${GPS_SLAM_DOCKER_SUDO:-0}"
-HOST_RUN_ROOT="${GPS_SLAM_RUN_ROOT:-${TRANSFER_ROOT}/thor_runs}"
+HOST_DATA_ROOT="${GPS_SLAM_DATA_ROOT:-${PROJECT_ROOT}/data}"
+HOST_WEIGHT_ROOT="${GPS_SLAM_WEIGHT_ROOT:-${PROJECT_ROOT}/.cache/torch_hub}"
+HOST_RUN_ROOT="${GPS_SLAM_RUN_ROOT:-${PROJECT_ROOT}/.runs}"
+HOST_LEGACY_TRANSFER_ROOT="${GPS_SLAM_LEGACY_TRANSFER_ROOT:-}"
 ACTION="${1:-help}"
 
 usage()
@@ -22,8 +24,7 @@ Commands:
   baseline-build
                Build the faithful legacy_large GPS-SLAM baseline in build_legacy/.
   regressions  Run the lightweight policy, metric, and pose-graph regressions.
-  freeze-check Verify the frozen functional tree, binaries, build caches,
-               architecture, and exact container image.
+  source-check Verify the algorithm tree against the exact imported R2 tag.
   shell        Open an interactive development shell.
   run CMD...   Run an arbitrary command in the development image.
   telemetry-run CMD...
@@ -32,6 +33,12 @@ Commands:
 
 Set GPS_SLAM_DOCKER_SUDO=1 to use an interactive one-off `sudo docker`
 workflow instead of granting the login user root-equivalent docker-group access.
+
+Host paths (defaults shown):
+  GPS_SLAM_DATA_ROOT=<repository>/data
+  GPS_SLAM_WEIGHT_ROOT=<repository>/.cache/torch_hub
+  GPS_SLAM_RUN_ROOT=<repository>/.runs
+  GPS_SLAM_LEGACY_TRANSFER_ROOT=  (optional; mounted at /workspace/transfer)
 EOF
 }
 
@@ -74,13 +81,23 @@ if [[ "${ACTION}" == "image" ]]; then
     exec "${ENGINE_CMD[@]}" build --pull -t "${IMAGE}" "${CONTAINER_DIR}"
 fi
 
-mkdir -p "${HOST_RUN_ROOT}"
+mkdir -p "${HOST_DATA_ROOT}" "${HOST_WEIGHT_ROOT}" "${HOST_RUN_ROOT}"
+HOST_DATA_ROOT=$(cd "${HOST_DATA_ROOT}" && pwd)
+HOST_WEIGHT_ROOT=$(cd "${HOST_WEIGHT_ROOT}" && pwd)
+HOST_RUN_ROOT=$(cd "${HOST_RUN_ROOT}" && pwd)
+if [[ -n "${HOST_LEGACY_TRANSFER_ROOT}" ]]; then
+    if [[ ! -d "${HOST_LEGACY_TRANSFER_ROOT}" ]]; then
+        echo "GPS_SLAM_LEGACY_TRANSFER_ROOT is not a directory: ${HOST_LEGACY_TRANSFER_ROOT}" >&2
+        exit 1
+    fi
+    HOST_LEGACY_TRANSFER_ROOT=$(cd "${HOST_LEGACY_TRANSFER_ROOT}" && pwd)
+fi
 
 CONTAINER_HASH_PROFILE="${GPS_SLAM_TSDF_HASH_PROFILE:-medium_128k}"
-CONTAINER_BUILD_DIR="${GPS_SLAM_THOR_BUILD_DIR:-/workspace/transfer/GPS-SLAM/build_thor}"
+CONTAINER_BUILD_DIR="${GPS_SLAM_THOR_BUILD_DIR:-/workspace/project/build_thor}"
 if [[ "${ACTION}" == "baseline-build" ]]; then
     CONTAINER_HASH_PROFILE="legacy_large"
-    CONTAINER_BUILD_DIR="/workspace/transfer/GPS-SLAM/build_legacy"
+    CONTAINER_BUILD_DIR="/workspace/project/build_legacy"
 fi
 IMAGE_ID=$("${ENGINE_CMD[@]}" image inspect --format '{{.Id}}' "${IMAGE}" 2>/dev/null || true)
 HOST_NVPMODEL_STATE="unavailable"
@@ -106,11 +123,20 @@ run_args=(
     --env GPS_SLAM_CONTAINER_IMAGE="${IMAGE}"
     --env GPS_SLAM_CONTAINER_IMAGE_ID="${IMAGE_ID}"
     --env GPS_SLAM_HOST_NVPMODEL_STATE="${HOST_NVPMODEL_STATE}"
-    --volume "${TRANSFER_ROOT}:/workspace/transfer"
-    --volume "${TRANSFER_ROOT}/offline_weights/torch_hub:/tmp/gps_slam_torch_cache/hub:ro"
+    --env GPS_SLAM_DATA_ROOT=/workspace/data
+    --env GPS_SLAM_RUN_ROOT=/workspace/runs
+    --env GPS_SLAM_BENCHMARK_FREEZE="${GPS_SLAM_BENCHMARK_FREEZE:-/workspace/project/BENCHMARK_FREEZE.json}"
+    --volume "${PROJECT_ROOT}:/workspace/project"
+    --volume "${HOST_DATA_ROOT}:/workspace/data:ro"
+    --volume "${HOST_DATA_ROOT}:/workspace/project/data:ro"
+    --volume "${HOST_WEIGHT_ROOT}:/tmp/gps_slam_torch_cache/hub:ro"
     --volume "${HOST_RUN_ROOT}:/workspace/runs"
-    --workdir /workspace/transfer/GPS-SLAM
+    --volume "${HOST_RUN_ROOT}:/workspace/project/output"
+    --workdir /workspace/project
 )
+if [[ -n "${HOST_LEGACY_TRANSFER_ROOT}" ]]; then
+    run_args+=(--volume "${HOST_LEGACY_TRANSFER_ROOT}:/workspace/transfer")
+fi
 container_exec=(/usr/local/bin/gps-slam-hpcx-exec)
 
 for group_name in video render; do
@@ -133,9 +159,9 @@ case "${ACTION}" in
         exec "${ENGINE_CMD[@]}" "${run_args[@]}" "${IMAGE}" "${container_exec[@]}" bash -lc \
             'python3 scripts/tracking_failure_policy_regression.py && python3 scripts/validation_hardening_regression.py && python3 scripts/metrics_hardening_regression.py && python3 scripts/benchmark_freeze_regression.py && python3 scripts/benchmark_hardening_regression.py && python3 scripts/realtime_hardening_regression.py && python3 scripts/promotion_hardening_regression.py && python3 scripts/pose_graph_solver_regression.py --build-dir build_thor'
         ;;
-    freeze-check)
+    source-check)
         exec "${ENGINE_CMD[@]}" "${run_args[@]}" "${IMAGE}" "${container_exec[@]}" \
-            python3 scripts/benchmark_freeze.py verify
+            python3 tools/release_hygiene.py --algorithm-equivalence thor-paper-20260819-r2-source
         ;;
     shell)
         exec "${ENGINE_CMD[@]}" "${run_args[@]}" --interactive --tty "${IMAGE}" "${container_exec[@]}" bash

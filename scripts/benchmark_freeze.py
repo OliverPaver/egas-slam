@@ -15,7 +15,10 @@ from typing import Any, Iterable
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_MANIFEST = PROJECT_ROOT / "BENCHMARK_FREEZE.json"
+_configured_manifest = os.environ.get("GPS_SLAM_BENCHMARK_FREEZE", "").strip()
+DEFAULT_MANIFEST = Path(_configured_manifest) if _configured_manifest else PROJECT_ROOT / "BENCHMARK_FREEZE.json"
+if not DEFAULT_MANIFEST.is_absolute():
+    DEFAULT_MANIFEST = PROJECT_ROOT / DEFAULT_MANIFEST
 SCHEMA_VERSION = 1
 
 ROOT_FILES = (

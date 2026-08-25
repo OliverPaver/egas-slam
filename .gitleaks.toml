@@ -1,0 +1,8 @@
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Generated GLM API documentation contains CSS identifiers that resemble API keys"
+paths = [
+  '''^ThirdLibs/fetchcontent/glm/doc/api/''',
+]

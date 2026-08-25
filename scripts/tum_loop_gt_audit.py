@@ -11,6 +11,7 @@ import argparse
 import csv
 import json
 import math
+import os
 import re
 from collections import Counter
 from pathlib import Path
@@ -24,10 +25,10 @@ except ImportError:  # pragma: no cover - optional convenience for run inference
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+DATA_ROOT = Path(os.environ.get("GPS_SLAM_DATA_ROOT", PROJECT_ROOT / "data"))
 DEFAULT_ROOTS = [
-    Path("/home/oliver/datasets/tum_rgbd_local/processed"),
-    Path("/media/oliver/B6AC1273AC122DFD/GPS-SLAM-data/tum_rgbd/processed"),
-    Path("/media/oliver/New Volume/GPS-SLAM-data/tum_rgbd/processed"),
+    DATA_ROOT / "tum_rgbd" / "processed",
+    DATA_ROOT / "tum_rgbd_local" / "processed",
 ]
 
 SEQUENCES = {

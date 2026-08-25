@@ -1,0 +1,36 @@
+{
+  "title": "Robust Submap-Based Gaussian-plus-SDF SLAM with Loop Closure on NVIDIA Jetson AGX Thor",
+  "upload_type": "software",
+  "description": "A research fork of GPS-SLAM adding bounded Gaussian/SDF submaps, loop closure, tracking containment, benchmark hardening, and native NVIDIA Jetson AGX Thor deployment.",
+  "version": "1.0.0",
+  "creators": [
+    {
+      "name": "Paver, Oliver",
+      "affiliation": "Department of Computer Science, The University of Manchester",
+      "orcid": "0009-0009-5807-6546"
+    }
+  ],
+  "contributors": [
+    {
+      "name": "Luján, Mikel",
+      "type": "Supervisor",
+      "affiliation": "Department of Computer Science, The University of Manchester",
+      "orcid": "0000-0002-0842-1083"
+    }
+  ],
+  "keywords": [
+    "SLAM",
+    "RGB-D",
+    "Gaussian splatting",
+    "signed distance field",
+    "loop closure",
+    "NVIDIA Jetson AGX Thor"
+  ],
+  "related_identifiers": [
+    {
+      "identifier": "https://github.com/MisEty/GPS-SLAM",
+      "relation": "isDerivedFrom",
+      "resource_type": "software"
+    }
+  ]
+}

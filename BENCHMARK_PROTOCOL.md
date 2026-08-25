@@ -1,11 +1,12 @@
 # Locked Benchmark Protocol
 
-The comparison code is frozen by `BENCHMARK_FREEZE.json`. Before generating or
-running a locked benchmark, verify the exact source tree, both binaries, CMake
-profiles, AArch64 platform, and container image:
+The historical R2 comparison is frozen by `BENCHMARK_FREEZE.json`. In the
+source release, first verify algorithm equivalence, then create and select a
+machine-local freeze after building both binaries as described in
+`REPRODUCIBILITY.md`:
 
 ```bash
-bash scripts/thor_container.sh freeze-check
+bash scripts/thor_container.sh source-check
 bash scripts/thor_container.sh regressions
 ```
 
@@ -83,14 +84,14 @@ different compiled TSDF capacities.
 # Substitute the desired paper sequence list in both commands.
 bash scripts/thor_container.sh run python3 run/tum_loop_validation.py \
   --benchmark-protocol gps_slam_tum_tracking_v1 --benchmark-role baseline \
-  --tum-root /workspace/transfer/datasets/tum_rgbd/processed \
+  --tum-root /workspace/data/tum_rgbd/processed \
   --trainer build_legacy/slam_trainer --variants basic_sdf \
   --sequences fr1_desk fr2_xyz fr3_office --full-sequence --repeats 5 --run \
   --output-root /workspace/runs/tum_baseline
 
 bash scripts/thor_container.sh run python3 run/tum_loop_validation.py \
   --benchmark-protocol gps_slam_tum_tracking_v1 --benchmark-role modified \
-  --tum-root /workspace/transfer/datasets/tum_rgbd/processed \
+  --tum-root /workspace/data/tum_rgbd/processed \
   --trainer build_thor/slam_trainer --variants multi_sdf_orb_apply \
   --loop-profile recommended_longspan_robust \
   --tsdf-lifecycle-profile paper_parity \

@@ -1,4 +1,10 @@
-mkdir -p data && cd data
+#!/usr/bin/env bash
+set -euo pipefail
+
+PROJECT_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+DATA_ROOT="${GPS_SLAM_DATA_ROOT:-${PROJECT_ROOT}/data}"
+mkdir -p "${DATA_ROOT}"
+cd "${DATA_ROOT}"
 # you can also download the Replica.zip manually through
 # link: https://caiyun.139.com/m/i?1A5Ch5C3abNiL password: v3fY (the zip is split into smaller zips because of the size limitation of caiyun)
 wget https://cvg-data.inf.ethz.ch/nice-slam/data/Replica.zip

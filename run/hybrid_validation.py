@@ -10,6 +10,7 @@ import csv
 import hashlib
 import json
 import math
+import os
 import re
 import shutil
 import subprocess
@@ -36,18 +37,20 @@ from benchmark_protocol import (  # noqa: E402
     write_manifest,
 )
 CONFIG_DIR = PROJECT_ROOT / "configs" / "experiments"
-DEFAULT_OUTPUT_ROOT = PROJECT_ROOT / "output" / "hybrid_validation"
+DATA_ROOT = Path(os.environ.get("GPS_SLAM_DATA_ROOT", PROJECT_ROOT / "data"))
+RUN_ROOT = Path(os.environ.get("GPS_SLAM_RUN_ROOT", PROJECT_ROOT / "output"))
+DEFAULT_OUTPUT_ROOT = RUN_ROOT / "hybrid_validation"
 BASE_CONFIG = PROJECT_ROOT / "configs" / "release" / "replica" / "office0.yaml"
 ATE_SCRIPT = PROJECT_ROOT / "scripts" / "ate_general.py"
 METRIC_SCRIPT = PROJECT_ROOT / "scripts" / "metric_general.py"
 SAMPLED_METRIC_SCRIPT = PROJECT_ROOT / "scripts" / "metric_sampled_eval.py"
 GEO_SCRIPT = PROJECT_ROOT / "scripts" / "geo_general.py"
-GT_HALF = PROJECT_ROOT / "data" / "replica" / "office0_half_clean"
-GT_FULL = PROJECT_ROOT / "data" / "replica" / "office0"
+GT_HALF = DATA_ROOT / "replica" / "office0_half_clean"
+GT_FULL = DATA_ROOT / "replica" / "office0"
 REPLICA_PREPARED_ROOTS = [
-    Path("/media/oliver/B6AC1273AC122DFD/GPS-SLAM-data/datasets/replica_prepared"),
-    Path("/media/oliver/New Volume/GPS-SLAM-data/datasets/replica_prepared"),
-    PROJECT_ROOT / "data" / "replica",
+    DATA_ROOT / "replica",
+    DATA_ROOT / "replica_prepared",
+    DATA_ROOT,
 ]
 IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg")
 SAFE_PATH_TOKEN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
@@ -235,27 +238,22 @@ def resolve_replica_input_dir(scene_name: str, half: bool, explicit_input_dir: P
     if explicit_input_dir is not None:
         return explicit_input_dir.resolve()
 
-    if scene_name == "office0":
-        return GT_HALF if half else GT_FULL
-
     relative_names = [f"{scene_name}_half_clean"] if half else [scene_name]
     for root in REPLICA_PREPARED_ROOTS:
         for relative_name in relative_names:
-            if root.name == "replica":
-                candidate = root / relative_name
-            else:
-                candidate = root / ("half" if half else "full") / relative_name
-            if candidate.exists():
-                return candidate.resolve()
+            candidates = [
+                root / relative_name,
+                root / ("half" if half else "full") / relative_name,
+            ]
+            for candidate in candidates:
+                if candidate.exists():
+                    return candidate.resolve()
 
     resolution = "half" if half else "full"
     searched = []
     for root in REPLICA_PREPARED_ROOTS:
         for relative_name in relative_names:
-            if root.name == "replica":
-                searched.append(str(root / relative_name))
-            else:
-                searched.append(str(root / resolution / relative_name))
+            searched.extend((str(root / relative_name), str(root / resolution / relative_name)))
     raise FileNotFoundError(
         f"Could not resolve Replica {resolution}-resolution scene '{scene_name}'. "
         "Pass --input-dir explicitly or prepare the scene under one of: "

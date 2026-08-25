@@ -8,6 +8,7 @@ import copy
 from collections import deque
 import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -33,10 +34,9 @@ from benchmark_protocol import (  # noqa: E402
     tum_role_for_variant,
     write_manifest,
 )
-DEFAULT_TUM_ROOT = Path("/media/oliver/B6AC1273AC122DFD/GPS-SLAM-data/tum_rgbd/processed")
-FALLBACK_TUM_ROOT = Path("/media/oliver/New Volume/GPS-SLAM-data/tum_rgbd/processed")
-DEFAULT_OUTPUT_PARENT = Path("/media/oliver/New Volume/GPS-SLAM-data")
-FALLBACK_OUTPUT_PARENT = Path("/media/oliver/B6AC1273AC122DFD/GPS-SLAM-data")
+DATA_ROOT = Path(os.environ.get("GPS_SLAM_DATA_ROOT", PROJECT_ROOT / "data"))
+RUN_ROOT = Path(os.environ.get("GPS_SLAM_RUN_ROOT", PROJECT_ROOT / "output"))
+DEFAULT_TUM_ROOT = DATA_ROOT / "tum_rgbd" / "processed"
 
 HASH_PROFILE_ESTIMATED_SCENE_BYTES = {
     # Mirrors ITMLocalMap::estimateSceneBytes() for ITMVoxel_s_rgb +
@@ -1419,23 +1419,8 @@ def default_output_root_name() -> str:
 def choose_output_root(requested: Path | None, min_free_gb: float) -> Path:
     if requested is not None:
         return requested
-    candidates = []
-    for parent in [DEFAULT_OUTPUT_PARENT, FALLBACK_OUTPUT_PARENT]:
-        if not parent.exists():
-            continue
-        try:
-            usage = shutil.disk_usage(parent)
-        except OSError:
-            continue
-        candidates.append((usage.free, parent / default_output_root_name()))
-    if not candidates:
-        return PROJECT_ROOT / "output" / default_output_root_name()
-
-    min_free_bytes = int(max(0.0, min_free_gb) * 1024**3)
-    for free_bytes, root in candidates:
-        if free_bytes >= min_free_bytes:
-            return root
-    return max(candidates, key=lambda item: item[0])[1]
+    del min_free_gb
+    return RUN_ROOT / default_output_root_name()
 
 
 def path_storage_summary(label: str, path: Path) -> None:
@@ -2202,7 +2187,7 @@ def main() -> None:
 
     tum_root = args.tum_root
     if tum_root is None:
-        tum_root = DEFAULT_TUM_ROOT if DEFAULT_TUM_ROOT.exists() else FALLBACK_TUM_ROOT
+        tum_root = DEFAULT_TUM_ROOT
     args.output_root = choose_output_root(args.output_root, args.min_free_gb)
     args.config_dir.mkdir(parents=True, exist_ok=True)
     args.output_root.mkdir(parents=True, exist_ok=True)
