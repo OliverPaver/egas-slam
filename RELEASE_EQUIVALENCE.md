@@ -36,6 +36,7 @@ The check hashes Git blobs, rejects any added, deleted, mode-changed, or content
 - `scripts/tum_preprocess.py`: writes to the explicit data root instead of selecting a personal removable drive according to free space.
 - `scripts/benchmark_freeze.py`: accepts `GPS_SLAM_BENCHMARK_FREEZE` so independently built binaries can use a separate exact local manifest without replacing the historical R2 record.
 - `scripts/benchmark_hardening_regression.py`: uses a synthetic clean-freeze fixture for its manifest round-trip, allowing the test to run without R2 binaries; production manifest behavior is not mocked.
+- `scripts/tracking_failure_policy_regression.py`: compiles its header-only policy fixture with InfiniTAM's `COMPILE_WITHOUT_CUDA` guard so the hardware-independent check also runs on CPU-only CI hosts; the tested policy and production build are unchanged.
 - Repository metadata, curated documentation, licensing material, GitHub Actions, release hygiene, and artifact packaging were added.
 - File modes and line-ending policy were normalized without modifying R2 algorithm contents.
 

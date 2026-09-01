@@ -84,6 +84,10 @@ def main() -> int:
                 "-Wextra",
                 "-Werror",
                 "-Wno-class-memaccess",
+                # This regression exercises only the header-only decision
+                # policy.  Keep it runnable on CPU-only CI hosts instead of
+                # requiring the CUDA SDK for unrelated InfiniTAM types.
+                "-DCOMPILE_WITHOUT_CUDA",
                 "-I",
                 str(PROJECT_ROOT / "InfiniTAM"),
                 "-I",

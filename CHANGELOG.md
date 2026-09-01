@@ -2,6 +2,10 @@
 
 All notable project changes are documented here. Dates use ISO 8601.
 
+## Unreleased
+
+- Make the header-only tracking-failure regression compile on CPU-only GitHub-hosted runners without requiring CUDA headers.
+
 ## 1.0.0-paper — 2026-08-25
 
 - Preserve the frozen `thor-paper-20260819-r2` submap and loop-closure implementation and its 61-run comparison evidence.
