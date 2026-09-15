@@ -36,8 +36,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y shellcheck
 
-      - name: Check release hygiene and algorithm equivalence
-        run: python tools/release_hygiene.py --algorithm-equivalence thor-paper-20260819-r2-source
+      - name: Check release hygiene and complete source identity
+        run: python tools/release_hygiene.py --source-manifest SOURCE_MANIFEST.json
 
       - name: Parse YAML and CFF
         run: |
@@ -71,3 +71,4 @@ jobs:
           python scripts/benchmark_hardening_regression.py
           python scripts/realtime_hardening_regression.py
           python scripts/promotion_hardening_regression.py
+          python scripts/capacity_profiles_regression.py --output /tmp/gps-capacity-check.json

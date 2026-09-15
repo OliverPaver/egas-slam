@@ -5,14 +5,10 @@ set(OPENSPLAT_MAX_CUDA_COMPATIBILITY OFF CACHE BOOL "Build for maximum CUDA devi
 option(GPS_SLAM_BUILD_LEGACY_UI "Build the unused InfiniTAM GLUT UI implementation" OFF)
 option(GPS_SLAM_BUILD_REMOTE_VIEWER "Build the TCP remote viewer" ON)
 option(GPS_SLAM_CUDA_FAST_MATH "Use CUDA fast math (changes numerical results)" OFF)
-set(GPS_SLAM_TSDF_HASH_PROFILE "legacy_large" CACHE STRING "InfiniTAM hash profile: legacy_large, medium_128k, or compact_64k")
-set_property(CACHE GPS_SLAM_TSDF_HASH_PROFILE PROPERTY STRINGS legacy_large medium_128k compact_64k)
-if(GPS_SLAM_TSDF_HASH_PROFILE STREQUAL "compact_64k")
-    add_compile_definitions(GPS_SLAM_COMPACT_HASH)
-elseif(GPS_SLAM_TSDF_HASH_PROFILE STREQUAL "medium_128k")
-    add_compile_definitions(GPS_SLAM_MEDIUM_HASH)
-elseif(NOT GPS_SLAM_TSDF_HASH_PROFILE STREQUAL "legacy_large")
-    message(FATAL_ERROR "Unsupported GPS_SLAM_TSDF_HASH_PROFILE=${GPS_SLAM_TSDF_HASH_PROFILE}")
+include(cmake/TSDFCapacityProfiles.cmake)
+option(GPS_SLAM_BASIC_CAPACITY_INSTRUMENTATION "Compile added BasicEngine allocation and CSV diagnostics" ON)
+if(NOT GPS_SLAM_BASIC_CAPACITY_INSTRUMENTATION)
+    add_compile_definitions(GPS_SLAM_DISABLE_BASIC_CAPACITY_INSTRUMENTATION)
 endif()
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 set(GPS_SLAM_LOCAL_PREFIXES "")
@@ -247,19 +243,52 @@ endif()
 set(RASTERIZER_LIBS rasterizer)
 file(GLOB RASTERIZER_SRC_FILES ${PROJECT_SOURCE_DIR}/gsplat/rasterizer/*.cu ${PROJECT_SOURCE_DIR}/gsplat/rasterizer/*.cuh)
 
-add_library(rasterizer ${RASTERIZER_SRC_FILES})
-target_link_libraries(rasterizer PUBLIC CUDA::cudart)
-target_include_directories(rasterizer PRIVATE
-    ${CUDAToolkit_INCLUDE_DIRS}
-    ${TORCH_INCLUDE_DIRS}
-)
-target_link_libraries(rasterizer PUBLIC glm::glm-header-only)
-target_compile_options(rasterizer PRIVATE
-    ${GPS_SLAM_TORCH_CXX_FLAGS}
-    $<$<COMPILE_LANGUAGE:CUDA>:--diag-suppress=20012>
-    $<$<AND:$<COMPILE_LANGUAGE:CUDA>,$<BOOL:${GPS_SLAM_CUDA_FAST_MATH}>>:--use_fast_math>
-)
-set_target_properties(rasterizer PROPERTIES LINKER_LANGUAGE CXX)
+set(GPS_SLAM_RASTERIZER_ARCHIVE "" CACHE FILEPATH "Optional SHA-pinned capacity-independent rasterizer archive")
+set(GPS_SLAM_RASTERIZER_ARCHIVE_SHA256 "" CACHE STRING "Required SHA256 for the reused archive")
+set(GPS_SLAM_RASTERIZER_ARCHIVE_MANIFEST "" CACHE FILEPATH "Required transitive dependency inventory")
+if(GPS_SLAM_RASTERIZER_ARCHIVE)
+    if(NOT GPS_SLAM_RASTERIZER_ARCHIVE_SHA256 OR NOT GPS_SLAM_RASTERIZER_ARCHIVE_MANIFEST)
+        message(FATAL_ERROR "Rasterizer reuse requires both a SHA256 and dependency inventory")
+    endif()
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    get_property(GPS_SLAM_BASE_CXX_FLAGS CACHE CMAKE_CXX_FLAGS PROPERTY VALUE)
+    get_property(GPS_SLAM_BASE_CUDA_FLAGS CACHE CMAKE_CUDA_FLAGS PROPERTY VALUE)
+    # Torch emits its own -gencode flags and can set the local architecture
+    # variable to OFF; compare the explicitly selected cache value instead.
+    get_property(GPS_SLAM_SELECTED_ARCHITECTURES CACHE CMAKE_CUDA_ARCHITECTURES PROPERTY VALUE)
+    execute_process(COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/scripts/capacity_rasterizer_inventory.py"
+        --verify "${GPS_SLAM_RASTERIZER_ARCHIVE_MANIFEST}"
+        --archive "${GPS_SLAM_RASTERIZER_ARCHIVE}" --sha256 "${GPS_SLAM_RASTERIZER_ARCHIVE_SHA256}"
+        --expect "CMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}"
+        --expect "CMAKE_CUDA_ARCHITECTURES=${GPS_SLAM_SELECTED_ARCHITECTURES}"
+        --expect "CMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}"
+        --expect "CMAKE_CUDA_COMPILER=${CMAKE_CUDA_COMPILER}"
+        --expect "CMAKE_CXX_FLAGS=${GPS_SLAM_BASE_CXX_FLAGS}"
+        --expect "CMAKE_CUDA_FLAGS=${GPS_SLAM_BASE_CUDA_FLAGS}"
+        --expect "CMAKE_CXX_FLAGS_RELEASE=${CMAKE_CXX_FLAGS_RELEASE}"
+        --expect "CMAKE_CUDA_FLAGS_RELEASE=${CMAKE_CUDA_FLAGS_RELEASE}"
+        --expect "GPS_SLAM_CUDA_FAST_MATH=${GPS_SLAM_CUDA_FAST_MATH}"
+        RESULT_VARIABLE GPS_SLAM_ARCHIVE_CHECK)
+    if(NOT GPS_SLAM_ARCHIVE_CHECK EQUAL 0)
+        message(FATAL_ERROR "Rasterizer archive source/compiler/container verification failed")
+    endif()
+    add_library(rasterizer STATIC IMPORTED)
+    set_target_properties(rasterizer PROPERTIES IMPORTED_LOCATION "${GPS_SLAM_RASTERIZER_ARCHIVE}")
+    target_link_libraries(rasterizer INTERFACE CUDA::cudart glm::glm-header-only)
+else()
+    if(GPS_SLAM_RASTERIZER_ARCHIVE_SHA256 OR GPS_SLAM_RASTERIZER_ARCHIVE_MANIFEST)
+        message(FATAL_ERROR "Rasterizer reuse metadata supplied without an archive")
+    endif()
+    add_library(rasterizer ${RASTERIZER_SRC_FILES})
+    target_link_libraries(rasterizer PUBLIC CUDA::cudart)
+    target_include_directories(rasterizer PRIVATE ${CUDAToolkit_INCLUDE_DIRS} ${TORCH_INCLUDE_DIRS})
+    target_link_libraries(rasterizer PUBLIC glm::glm-header-only)
+    target_compile_options(rasterizer PRIVATE
+        ${GPS_SLAM_TORCH_CXX_FLAGS}
+        $<$<COMPILE_LANGUAGE:CUDA>:--diag-suppress=20012>
+        $<$<AND:$<COMPILE_LANGUAGE:CUDA>,$<BOOL:${GPS_SLAM_CUDA_FAST_MATH}>>:--use_fast_math>)
+    set_target_properties(rasterizer PROPERTIES LINKER_LANGUAGE CXX)
+endif()
 
 
 ##############################################################

@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Fail on release-tree contamination and verify R2 algorithm equivalence."""
+"""Check source-only release hygiene and the complete source-file manifest."""
 
 from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import os
 import re
 import subprocess
@@ -37,6 +38,7 @@ REQUIRED_FILES = (
     "CONTRIBUTING.md",
     "SECURITY.md",
     "CODE_OF_CONDUCT.md",
+    "SOURCE_MANIFEST.json",
 )
 FORBIDDEN_PREFIXES = (
     "ThirdLibs/install/",
@@ -50,6 +52,8 @@ FORBIDDEN_PREFIXES = (
     "models/",
     "renders/",
     "telemetry/",
+    "benchmark_repair_",
+    "thesis_results_",
 )
 FORBIDDEN_SUFFIXES = (
     ".o",
@@ -65,6 +69,7 @@ FORBIDDEN_SUFFIXES = (
     ".tar.gz",
     ".tar.zst",
     ".zip",
+    ".ply",
 )
 TEXT_SUFFIXES = {
     "",
@@ -75,6 +80,8 @@ TEXT_SUFFIXES = {
     ".cpp",
     ".cu",
     ".cuh",
+    ".tpp",
+    ".tcu",
     ".h",
     ".hpp",
     ".json",
@@ -158,6 +165,9 @@ def hygiene() -> None:
 
     for path in paths:
         relative = path.relative_to(ROOT).as_posix()
+        if path.is_symlink():
+            errors.append(f"source release must not contain symbolic links: {relative}")
+            continue
         if not path.is_file():
             continue
         first_part = relative.split("/", 1)[0]
@@ -173,7 +183,7 @@ def hygiene() -> None:
             errors.append(f"file exceeds 50 MiB: {relative} ({path.stat().st_size} bytes)")
 
         text = read_text(path)
-        if text is None or is_vendored(relative) or relative == "BENCHMARK_FREEZE.json":
+        if text is None or is_vendored(relative):
             continue
         if ABSOLUTE_USER_PATH.search(text):
             errors.append(f"absolute user path: {relative}")
@@ -210,9 +220,39 @@ def algorithm_equivalence(tag: str) -> None:
     print(f"algorithm equivalence passed: tag={tag} digest={tree_digest(tag)}")
 
 
+def source_manifest(path: str) -> None:
+    """Verify every shipped file except the manifest's unavoidable self entry."""
+    manifest_path = (ROOT / path).resolve()
+    relative_manifest = manifest_path.relative_to(ROOT).as_posix()
+    with manifest_path.open(encoding="utf-8") as handle:
+        manifest = json.load(handle)
+    if manifest.get("schema_version") != 1:
+        raise CheckFailure("unsupported source-manifest schema")
+    records = manifest["files"]
+    actual = {p.relative_to(ROOT).as_posix(): p for p in candidate_paths()
+              if p.is_file() and p != manifest_path}
+    if set(records) != set(actual):
+        raise CheckFailure("source-manifest file-set mismatch: "
+                           f"missing={sorted(set(records) - set(actual))}; "
+                           f"added={sorted(set(actual) - set(records))}")
+    errors = []
+    for name, record in records.items():
+        p = actual[name]
+        if p.is_symlink() or not p.resolve().is_relative_to(ROOT):
+            errors.append(name + ": unsafe source path")
+            continue
+        data = p.read_bytes()
+        if len(data) != record["bytes"] or hashlib.sha256(data).hexdigest() != record["sha256"]:
+            errors.append(name + ": contents changed")
+    if errors:
+        raise CheckFailure("source-manifest verification failed:\n- " + "\n- ".join(errors))
+    print(f"complete source identity passed: {relative_manifest}; {len(records)} files")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--algorithm-equivalence", metavar="TAG")
+    parser.add_argument("--source-manifest", metavar="JSON")
     parser.add_argument("--skip-hygiene", action="store_true")
     args = parser.parse_args()
     try:
@@ -220,6 +260,8 @@ def main() -> int:
             hygiene()
         if args.algorithm_equivalence:
             algorithm_equivalence(args.algorithm_equivalence)
+        if args.source_manifest:
+            source_manifest(args.source_manifest)
     except CheckFailure as exc:
         print(exc, file=sys.stderr)
         return 1

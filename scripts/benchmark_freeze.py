@@ -16,7 +16,7 @@ from typing import Any, Iterable
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 _configured_manifest = os.environ.get("GPS_SLAM_BENCHMARK_FREEZE", "").strip()
-DEFAULT_MANIFEST = Path(_configured_manifest) if _configured_manifest else PROJECT_ROOT / "BENCHMARK_FREEZE.json"
+DEFAULT_MANIFEST = Path(_configured_manifest) if _configured_manifest else PROJECT_ROOT / ".runs/local-freeze.json"
 if not DEFAULT_MANIFEST.is_absolute():
     DEFAULT_MANIFEST = PROJECT_ROOT / DEFAULT_MANIFEST
 SCHEMA_VERSION = 1
@@ -33,6 +33,7 @@ ROOT_FILES = (
 )
 
 SOURCE_ROOTS = (
+    "cmake",
     "InfiniTAM",
     "ThirdLibs/fetchcontent/cxxopts",
     "ThirdLibs/fetchcontent/glm",
@@ -44,6 +45,7 @@ SOURCE_ROOTS = (
     "ThirdLibs/tinyply",
     "ThirdLibs/yaml-cpp",
     "configs/release",
+    "configs/final",
     "configs/viewer",
     "containers",
     "gsplat",
@@ -56,7 +58,7 @@ SOURCE_ROOTS = (
 
 IGNORED_PARTS = {".git", "__pycache__", ".pytest_cache"}
 IGNORED_SUFFIXES = {".pyc", ".pyo", ".swp", ".tmp"}
-BINARY_PATHS = ("build_legacy/slam_trainer", "build_thor/slam_trainer")
+BINARY_PATHS = ("build_original/slam_trainer", "build_thor/slam_trainer")
 CACHE_KEYS = (
     "CMAKE_BUILD_TYPE",
     "CMAKE_CUDA_ARCHITECTURES",

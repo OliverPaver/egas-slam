@@ -7,6 +7,7 @@
 #include "../Engines/ViewBuilding/ITMViewBuilderFactory.h"
 #include "../Engines/Visualisation/ITMVisualisationEngineFactory.h"
 #include "../Objects/RenderStates/ITMRenderStateFactory.h"
+#include "../Objects/RenderStates/ITMRenderState_VH.h"
 #include "../Trackers/ITMTrackerFactory.h"
 #include "../Utils/ITMTrackingFailurePolicy.h"
 
@@ -16,6 +17,8 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <type_traits>
+#include <stdexcept>
 
 // #define OUTPUT_TRAJECTORY_QUATERNIONS
 
@@ -34,6 +37,53 @@ static bool basicEngineIsFinitePose(const ORUtils::SE3Pose &pose)
 {
 	return basicEngineIsFiniteMatrix(pose.GetM()) && basicEngineIsFiniteMatrix(pose.GetInvM());
 }
+
+template <typename TVoxel, typename TIndex>
+void ITMBasicEngine<TVoxel, TIndex>::configureCapacityDiagnostics(const std::string &csvPath)
+{
+#ifdef GPS_SLAM_DISABLE_BASIC_CAPACITY_INSTRUMENTATION
+    (void)csvPath;
+    throw std::runtime_error("Capacity diagnostics were compiled out of this performance-control binary");
+#else
+    if constexpr (!std::is_same<TIndex, ITMVoxelBlockHash>::value)
+        throw std::runtime_error("Capacity diagnostics require the voxel hash index");
+    capacityDiagnosticLog.open(csvPath);
+    if (!capacityDiagnosticLog)
+        throw std::runtime_error("Cannot open capacity diagnostics: " + csvPath);
+    capacityDiagnosticLog << "frame,raw_result,policy_result,did_fusion,pose_finite,"
+        "blocks_capacity,blocks_used,blocks_free,hash_buckets,excess_capacity,excess_free,"
+        "visible_blocks,counters_available,failed_voxel_requests,failed_excess_requests\n";
+#endif
+}
+
+#ifndef GPS_SLAM_DISABLE_BASIC_CAPACITY_INSTRUMENTATION
+template <typename TVoxel, typename TIndex>
+void ITMBasicEngine<TVoxel, TIndex>::logCapacityDiagnostics(int frameNo, bool didFusion)
+{
+    if (!capacityDiagnosticLog.is_open()) return;
+    if constexpr (std::is_same<TIndex, ITMVoxelBlockHash>::value)
+    {
+        const int freeBlocks = scene->localVBA.lastFreeBlockId + 1;
+        const auto *renderState = static_cast<const ITMRenderState_VH *>(renderState_live);
+        capacityDiagnosticLog << frameNo << ',' << lastRawTrackingResult << ','
+            << lastPolicyTrackingResult << ',' << didFusion << ','
+            << basicEngineIsFinitePose(*(trackingState->pose_d)) << ','
+            << SDF_LOCAL_BLOCK_NUM << ',' << SDF_LOCAL_BLOCK_NUM - freeBlocks << ','
+            << freeBlocks << ',' << SDF_BUCKET_NUM << ',' << SDF_EXCESS_LIST_SIZE << ','
+            << scene->index.GetLastFreeExcessListId() + 1 << ',' << renderState->noVisibleEntries << ','
+            << scene->allocationFailureCountersAvailable << ',' << scene->lastFailedVoxelAllocations << ','
+            << scene->lastFailedExcessAllocations << '\n';
+        // Flush once after the complete buffered row, not after each field.
+        // The legacy application does not destroy its heap-allocated engine
+        // at normal exit. This also preserves every completed row on early
+        // exit without relying on its stream destructor or an EOF callback.
+        capacityDiagnosticLog.flush();
+        if (!capacityDiagnosticLog)
+            throw std::runtime_error("Cannot write capacity diagnostics");
+    }
+}
+
+#endif
 
 template <typename TVoxel, typename TIndex>
 void ITMBasicEngine<TVoxel, TIndex>::configureTrackingDiagnostics(int startFrame, int endFrame, const std::string &csvPath)
@@ -441,6 +491,10 @@ ITMTrackingState::TrackingResult ITMBasicEngine<TVoxel, TIndex>::ProcessFrame(IT
 {
 	lastPoseRollback = false;
 	lastFusionSuppressed = false;
+#ifndef GPS_SLAM_DISABLE_BASIC_CAPACITY_INSTRUMENTATION
+    scene->lastFailedVoxelAllocations = 0;
+    scene->lastFailedExcessAllocations = 0;
+#endif
 	// prepare image and turn it into a depth image
 	if (imuMeasurement == NULL)
 		viewBuilder->UpdateView(&view, rgbImage, rawDepthImage, settings->useBilateralFilter);
@@ -584,6 +638,9 @@ ITMTrackingState::TrackingResult ITMBasicEngine<TVoxel, TIndex>::ProcessFrame(IT
 	// 记录相机内外参
 	camPoses.emplace_back(*(trackingState->pose_d));
 	camIntrincs.emplace_back(view->calib.intrinsics_d);
+#ifndef GPS_SLAM_DISABLE_BASIC_CAPACITY_INSTRUMENTATION
+    logCapacityDiagnostics(inputFrameNo, didFusion);
+#endif
 	framesProcessed++;
 	return trackerResult;
 }

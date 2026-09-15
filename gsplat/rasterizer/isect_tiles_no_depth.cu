@@ -84,7 +84,8 @@ namespace gsplat
             // first pass only writes out tiles_per_gauss
             tiles_per_gauss[idx] = static_cast<int32_t>(
                 (tile_max.y - tile_min.y) * (tile_max.x - tile_min.x));
-            groups_per_gauss[idx] = static_cast<int32_t>((4 * radius * radius + 32 - 1) / 32);
+            groups_per_gauss[idx] = tiles_per_gauss[idx] > 0
+                ? static_cast<int32_t>((4 * radius * radius + 32 - 1) / 32) : 0;
             return;
         }
 
@@ -148,6 +149,17 @@ namespace gsplat
         GSPLAT_CHECK_INPUT(means2d);
         GSPLAT_CHECK_INPUT(radii);
         GSPLAT_CHECK_INPUT(depths);
+        TORCH_CHECK(C > 0 && tile_size > 0 && tile_width > 0 && tile_height > 0,
+                    "Positive camera count and tile dimensions are required");
+        TORCH_CHECK(means2d.dim() == 2 || means2d.dim() == 3,
+                    "means2d must have shape [nnz,2] or [C,N,2]");
+        TORCH_CHECK(means2d.size(-1) == 2 &&
+                    means2d.sizes().slice(0, means2d.dim() - 1) == depths.sizes() &&
+                    radii.sizes() == depths.sizes(), "Inconsistent tile input shapes");
+        TORCH_CHECK(radii.scalar_type() == torch::kInt32 &&
+                    depths.scalar_type() == means2d.scalar_type(), "Inconsistent tile input dtypes");
+        TORCH_CHECK(means2d.dim() == 2 || means2d.size(0) == C,
+                    "Dense tile input camera count disagrees with C");
         if (camera_ids.has_value())
         {
             GSPLAT_CHECK_INPUT(camera_ids.value());
@@ -188,9 +200,9 @@ namespace gsplat
         torch::Tensor tiles_per_gauss =
             torch::empty_like(depths, depths.options().dtype(torch::kInt32));
         torch::Tensor groups_per_gauss =
-            torch::zeros({N}, depths.options().dtype(torch::kInt32));
+            torch::zeros_like(depths, depths.options().dtype(torch::kInt32));
 
-        int64_t n_isects, n_groups;
+        int64_t n_isects = 0, n_groups = 0;
         torch::Tensor cum_tiles_per_gauss, cum_groups_per_gauss;
         // cudaDeviceSynchronize();
         // clock_gettime(CLOCK_MONOTONIC, &first_pass_start);

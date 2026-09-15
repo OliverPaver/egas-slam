@@ -3,7 +3,7 @@ set -euo pipefail
 
 PROJECT_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 CONTAINER_DIR="${PROJECT_ROOT}/containers/thor"
-IMAGE="${GPS_SLAM_THOR_IMAGE:-gps-slam-thor:pytorch-26.07-jp7.1}"
+IMAGE="${GPS_SLAM_THOR_IMAGE:-gps-slam-thor:final-20260915}"
 ENGINE="${GPS_SLAM_CONTAINER_ENGINE:-docker}"
 USE_SUDO="${GPS_SLAM_DOCKER_SUDO:-0}"
 HOST_DATA_ROOT="${GPS_SLAM_DATA_ROOT:-${PROJECT_ROOT}/data}"
@@ -22,9 +22,9 @@ Commands:
   check        Verify CUDA, Torch, and SM 11.0 access inside the image.
   build        Build GPS-SLAM and native ThirdLibs inside the image.
   baseline-build
-               Build the faithful legacy_large GPS-SLAM baseline in build_legacy/.
+               Build the capacity-augmented original control (legacy_pool_2m) in build_original/.
   regressions  Run the lightweight policy, metric, and pose-graph regressions.
-  source-check Verify the algorithm tree against the exact imported R2 tag.
+  source-check Verify this release against SOURCE_MANIFEST.json (CPU only).
   shell        Open an interactive development shell.
   run CMD...   Run an arbitrary command in the development image.
   telemetry-run CMD...
@@ -45,6 +45,10 @@ EOF
 if [[ "${ACTION}" == "help" || "${ACTION}" == "--help" || "${ACTION}" == "-h" ]]; then
     usage
     exit 0
+fi
+
+if [[ "${ACTION}" == "source-check" ]]; then
+    exec python3 "${PROJECT_ROOT}/tools/release_hygiene.py" --source-manifest SOURCE_MANIFEST.json
 fi
 
 if ! command -v "${ENGINE}" >/dev/null 2>&1; then
@@ -95,9 +99,11 @@ fi
 
 CONTAINER_HASH_PROFILE="${GPS_SLAM_TSDF_HASH_PROFILE:-medium_128k}"
 CONTAINER_BUILD_DIR="${GPS_SLAM_THOR_BUILD_DIR:-/workspace/project/build_thor}"
+CONTAINER_BASIC_INSTRUMENTATION="${GPS_SLAM_BASIC_CAPACITY_INSTRUMENTATION:-OFF}"
 if [[ "${ACTION}" == "baseline-build" ]]; then
-    CONTAINER_HASH_PROFILE="legacy_large"
-    CONTAINER_BUILD_DIR="/workspace/project/build_legacy"
+    CONTAINER_HASH_PROFILE="legacy_pool_2m"
+    CONTAINER_BUILD_DIR="/workspace/project/build_original"
+    CONTAINER_BASIC_INSTRUMENTATION=ON
 fi
 IMAGE_ID=$("${ENGINE_CMD[@]}" image inspect --format '{{.Id}}' "${IMAGE}" 2>/dev/null || true)
 HOST_NVPMODEL_STATE="unavailable"
@@ -115,17 +121,20 @@ run_args=(
     --user "$(id -u):$(id -g)"
     --env HOME=/tmp
     --env NVIDIA_IMEX_CHANNELS=0
+    --env NVIDIA_TF32_OVERRIDE=0
+    --env CUBLAS_WORKSPACE_CONFIG=:4096:8
     --env TORCH_HOME=/tmp/gps_slam_torch_cache
     --env GPS_SLAM_BUILD_JOBS="${GPS_SLAM_BUILD_JOBS:-6}"
     --env GPS_SLAM_BUILD_REMOTE_VIEWER="${GPS_SLAM_BUILD_REMOTE_VIEWER:-0}"
     --env GPS_SLAM_TSDF_HASH_PROFILE="${CONTAINER_HASH_PROFILE}"
+    --env GPS_SLAM_BASIC_CAPACITY_INSTRUMENTATION="${CONTAINER_BASIC_INSTRUMENTATION}"
     --env GPS_SLAM_THOR_BUILD_DIR="${CONTAINER_BUILD_DIR}"
     --env GPS_SLAM_CONTAINER_IMAGE="${IMAGE}"
     --env GPS_SLAM_CONTAINER_IMAGE_ID="${IMAGE_ID}"
     --env GPS_SLAM_HOST_NVPMODEL_STATE="${HOST_NVPMODEL_STATE}"
     --env GPS_SLAM_DATA_ROOT=/workspace/data
     --env GPS_SLAM_RUN_ROOT=/workspace/runs
-    --env GPS_SLAM_BENCHMARK_FREEZE="${GPS_SLAM_BENCHMARK_FREEZE:-/workspace/project/BENCHMARK_FREEZE.json}"
+    --env GPS_SLAM_BENCHMARK_FREEZE="${GPS_SLAM_BENCHMARK_FREEZE:-/workspace/runs/local-freeze.json}"
     --volume "${PROJECT_ROOT}:/workspace/project"
     --volume "${HOST_DATA_ROOT}:/workspace/data:ro"
     --volume "${HOST_DATA_ROOT}:/workspace/project/data:ro"
@@ -158,10 +167,6 @@ case "${ACTION}" in
     regressions)
         exec "${ENGINE_CMD[@]}" "${run_args[@]}" "${IMAGE}" "${container_exec[@]}" bash -lc \
             'python3 scripts/tracking_failure_policy_regression.py && python3 scripts/validation_hardening_regression.py && python3 scripts/metrics_hardening_regression.py && python3 scripts/benchmark_freeze_regression.py && python3 scripts/benchmark_hardening_regression.py && python3 scripts/realtime_hardening_regression.py && python3 scripts/promotion_hardening_regression.py && python3 scripts/pose_graph_solver_regression.py --build-dir build_thor'
-        ;;
-    source-check)
-        exec "${ENGINE_CMD[@]}" "${run_args[@]}" "${IMAGE}" "${container_exec[@]}" \
-            python3 tools/release_hygiene.py --algorithm-equivalence thor-paper-20260819-r2-source
         ;;
     shell)
         exec "${ENGINE_CMD[@]}" "${run_args[@]}" --interactive --tty "${IMAGE}" "${container_exec[@]}" bash

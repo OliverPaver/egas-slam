@@ -12,25 +12,7 @@
 #include "../../../ORUtils/MemoryBlock.h"
 #include "../../../ORUtils/MemoryBlockPersister.h"
 
-#define SDF_BLOCK_SIZE 8				// SDF block size
-#define SDF_BLOCK_SIZE3 512				// SDF_BLOCK_SIZE3 = SDF_BLOCK_SIZE * SDF_BLOCK_SIZE * SDF_BLOCK_SIZE
-
-#ifdef GPS_SLAM_COMPACT_HASH
-#define SDF_LOCAL_BLOCK_NUM 0x10000
-#define SDF_BUCKET_NUM 0x40000
-#define SDF_HASH_MASK 0x3ffff
-#define SDF_EXCESS_LIST_SIZE 0x8000
-#elif defined(GPS_SLAM_MEDIUM_HASH)
-#define SDF_LOCAL_BLOCK_NUM 0x20000
-#define SDF_BUCKET_NUM 0x80000
-#define SDF_HASH_MASK 0x7ffff
-#define SDF_EXCESS_LIST_SIZE 0x10000
-#else
-#define SDF_LOCAL_BLOCK_NUM 0x40000
-#define SDF_BUCKET_NUM 0x100000
-#define SDF_HASH_MASK 0xfffff
-#define SDF_EXCESS_LIST_SIZE 0x20000
-#endif
+#include "ITMHashCapacity.h"
 
 #define SDF_TRANSFER_BLOCK_NUM 0x1000	// Maximum number of blocks transfered in one swap operation
 

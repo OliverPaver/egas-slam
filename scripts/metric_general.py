@@ -123,7 +123,7 @@ def evaluate(renders_dir, gt_dir, depth_mask=True, device_request="auto", allow_
                     gt_img = gt_img * (depth_img > 0)
                 psnr_value = psnr(render_img, gt_img).item()
                 ssim_value = ssim(render_img, gt_img).item()
-                lpips_value = lpips_module(render_img, gt_img).item()
+                lpips_value = lpips_module(2.0 * render_img - 1.0, 2.0 * gt_img - 1.0).item()
                 image_name = gt_path.name
                 psnrs.append(psnr_value)
                 ssims.append(ssim_value)

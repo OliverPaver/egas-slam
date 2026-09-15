@@ -108,6 +108,9 @@ namespace ITMLib
 		/// Enable bounded diagnostics for tracker input/raycast health.
 		void configureTrackingDiagnostics(int startFrame, int endFrame, const std::string &csvPath);
 
+        /// Buffered host-scalar allocation diagnostics; no additional GPU transfer.
+        void configureCapacityDiagnostics(const std::string &csvPath);
+
 		/// switch for turning main processing on/off
 		void turnOnMainProcessing();
 		void turnOffMainProcessing();
@@ -131,6 +134,10 @@ namespace ITMLib
 		int trackingDiagnosticStartFrame = -1;
 		int trackingDiagnosticEndFrame = -1;
 		std::ofstream trackingDiagnosticLog;
+#ifndef GPS_SLAM_DISABLE_BASIC_CAPACITY_INSTRUMENTATION
+        std::ofstream capacityDiagnosticLog;
+        void logCapacityDiagnostics(int frameNo, bool didFusion);
+#endif
 		bool shouldLogTrackingDiagnostics(int frameNo) const;
 		void logTrackingDiagnostics(int frameNo, const char *stage,
 			ITMTrackingState::TrackingResult trackerResult, bool didFusion);

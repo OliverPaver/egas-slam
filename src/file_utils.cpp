@@ -1,6 +1,8 @@
 #include "file_utils.h"
 
 #include <cstdlib>
+#include <cmath>
+#include <limits>
 #include <stdexcept>
 
 namespace fs = std::filesystem;
@@ -93,8 +95,7 @@ MatrixX readMatrixFromTXT(const std::string &filename)
 
     if (!infile.is_open())
     {
-        std::cerr << "Error: Unable to open file " << filename << std::endl;
-        return Eigen::MatrixXf();
+        throw std::runtime_error("Unable to open matrix file: " + filename);
     }
 
     std::string line;
@@ -106,8 +107,12 @@ MatrixX readMatrixFromTXT(const std::string &filename)
 
         while (ss >> value)
         {
+            if (!std::isfinite(value))
+                throw std::runtime_error("Non-finite matrix value: " + filename);
             row.push_back(value);
         }
+        if (!ss.eof())
+            throw std::runtime_error("Malformed matrix value: " + filename);
 
         if (!row.empty())
         {
@@ -115,12 +120,13 @@ MatrixX readMatrixFromTXT(const std::string &filename)
         }
     }
 
+    if (infile.bad())
+        throw std::runtime_error("Failed while reading matrix file: " + filename);
     infile.close();
 
     if (matrix.empty())
     {
-        std::cerr << "Error: File is empty or contains invalid data." << std::endl;
-        return Eigen::MatrixXf();
+        throw std::runtime_error("Empty matrix file: " + filename);
     }
 
     int rows = matrix.size();
@@ -132,8 +138,7 @@ MatrixX readMatrixFromTXT(const std::string &filename)
     {
         if (static_cast<int>(matrix[i].size()) != cols)
         {
-            std::cerr << "Error: Inconsistent number of columns in the file." << std::endl;
-            return Eigen::MatrixXf();
+            throw std::runtime_error("Inconsistent matrix columns: " + filename);
         }
         for (int j = 0; j < cols; ++j)
         {
@@ -325,7 +330,9 @@ void saveTensorTXT(const torch::Tensor &tensor, const std::string &filename)
     }
 
     // 确保张量内存连续（防止非连续内存导致访问错误）
-    auto tensor_contig = tensor.contiguous();
+    auto tensor_contig = tensor.detach().to(torch::kCPU).to(torch::kFloat32).contiguous();
+    if (!torch::isfinite(tensor_contig).all().item<bool>())
+        throw std::runtime_error("Cannot save a non-finite pose: " + filename);
 
     // 打开文件流
     std::ofstream file(filename);
@@ -334,7 +341,7 @@ void saveTensorTXT(const torch::Tensor &tensor, const std::string &filename)
     }
 
     // 设置输出流的浮点精度为固定6位小数
-    file << std::fixed << std::setprecision(6);
+    file << std::setprecision(std::numeric_limits<float>::max_digits10);
 
     // 获取数据指针（假设数据类型为float）
     auto data_ptr = tensor_contig.data_ptr<float>();
@@ -350,4 +357,6 @@ void saveTensorTXT(const torch::Tensor &tensor, const std::string &filename)
     }
 
     file.close();
+    if (!file)
+        throw std::runtime_error("Failed while writing pose: " + filename);
 }

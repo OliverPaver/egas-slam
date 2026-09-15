@@ -1,11 +1,17 @@
-# Documentation
+# Implementation documentation
 
-- [Architecture](ARCHITECTURE.md): original pipeline and research-extension walkthrough.
-- [Configuration](CONFIGURATION.md): submap, loop-closure, paging, scheduler, and runner controls.
-- [Thor porting](THOR_PORTING.md): architecture mismatches, dependency decisions, and implementation rationale.
-- [Benchmark hardening](BENCHMARK_HARDENING.md): real-time and fairness instrumentation added before the freeze.
-- [Locked benchmark protocol](../BENCHMARK_PROTOCOL.md): canonical metrics, timing boundaries, and commands.
-- [Paper readiness lock](../PAPER_READINESS_LOCK_2026-08-25.md): final R2 results, rejected candidates, and soak evidence.
-- [Reproducibility](../REPRODUCIBILITY.md): clean-clone build and evaluation procedure.
+Start with the [reproducibility guide](../REPRODUCIBILITY.md) to build and run a
+scene, or the architecture guide to follow the code.
 
-Chronological helper notes and raw development logs are retained in the private research archive rather than the release repository. Their checksums are carried by the private archive manifest.
+| Guide | Contents |
+| --- | --- |
+| [Architecture](ARCHITECTURE.md) | Runtime flow, map ownership, loop correction and saved-map evaluation. |
+| [Configuration](CONFIGURATION.md) | Final scene templates, build profiles and important runtime controls. |
+| [Thor build rationale](THOR_PORTING.md) | Native CUDA/Torch compatibility, dependencies and container boundaries. |
+| [Measurement and validation](BENCHMARK_HARDENING.md) | Timing, metric support, completion, resources and source identity. |
+| [Provenance](../PROVENANCE.md) | Source lineage and the evaluation-only overlap metadata correction. |
+| [Third-party notices](../THIRD_PARTY_NOTICES.md) | Bundled component attribution and retained licence texts. |
+
+These guides describe the shipped software. Numerical benchmark results,
+historical execution records and thesis material are maintained outside this
+implementation repository.

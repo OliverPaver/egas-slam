@@ -60,6 +60,28 @@ void Pipeline::loadConfig(const YAML::Node &config, const std::string &workspace
         throw std::runtime_error("PIPE.eval_max_frames must be >= 0");
     if (eval_start_offset < 0)
         throw std::runtime_error("PIPE.eval_start_offset must be >= 0");
+    eval_frame_indices.clear();
+    if (config["eval_frame_indices"])
+    {
+        eval_frame_indices = config["eval_frame_indices"].as<std::vector<int>>();
+        if (eval_frame_indices.empty())
+            throw std::runtime_error("PIPE.eval_frame_indices must not be empty when provided");
+        if (eval_stride != 1 || eval_max_frames != 0 || eval_start_offset != 0)
+            throw std::runtime_error("PIPE.eval_frame_indices cannot be combined with stride/offset/max sampling");
+        int previous = -1;
+        for (const int index : eval_frame_indices)
+        {
+            if (index <= previous)
+                throw std::runtime_error("PIPE.eval_frame_indices must be sorted, unique and nonnegative");
+            previous = index;
+        }
+    }
+    eval_image_extension = config["eval_image_extension"]
+                               ? config["eval_image_extension"].as<std::string>() : ".jpg";
+    if (eval_image_extension != ".jpg" && eval_image_extension != ".png")
+        throw std::runtime_error("PIPE.eval_image_extension must be .jpg or .png");
+    eval_write_auxiliary_images = config["eval_write_auxiliary_images"]
+                                     ? config["eval_write_auxiliary_images"].as<bool>() : true;
 
     // output settings
     log_iter = config["log_iter"].as<int>();
@@ -97,6 +119,25 @@ void Pipeline::loadConfig(const YAML::Node &config, const std::string &workspace
             (fs::path(tb_path) / "tfevents.pb").string());
 #endif
     }
+}
+
+void Pipeline::writeEvalImage(const std::string &filename, const cv::Mat &image) const
+{
+    const fs::path path(filename);
+    const bool scored_rgb = path.parent_path().filename() == "render" &&
+                            path.stem().extension() == ".color";
+    if (!eval_write_auxiliary_images && !scored_rgb)
+        return;
+    if (image.empty() || !cv::imwrite(filename, image))
+        throw std::runtime_error("Failed to write evaluation image: " + filename);
+}
+
+cv::Mat Pipeline::evalRgbImage(const torch::Tensor &rgb) const
+{
+    if (rgb.dim() != 3 || rgb.size(2) != 3 || !torch::isfinite(rgb).all().item<bool>())
+        throw std::runtime_error("Evaluation RGB must be a finite HxWx3 tensor");
+    // Both common renderers use clamp, multiply by 255 and truncate to uint8.
+    return tensorToImage(torch::clamp(rgb, 0, 1));
 }
 
 void Pipeline::save(RawGaussianModel &model, std::vector<Camera> cams)
@@ -442,15 +483,15 @@ void Pipeline::renderEvalImgs(RawGaussianModel &model, const std::vector<Camera>
                 torch::Tensor gt_rgb = cam.image;
                 // save gt image
                 cv::Mat gt_img = tensorToImage(gt_rgb);
-                cv::imwrite((fs::path(eval_path) / "gt" / (frame_file_name + ".color.jpg")).string(),
+                writeEvalImage((fs::path(eval_path) / "gt" / (frame_file_name + ".color" + eval_image_extension)).string(),
                             gt_img);
                 // save render image
-                cv::Mat rendered_img = tensorToImage(rendered_rgb);
-                cv::imwrite((fs::path(eval_path) / "render" / (frame_file_name + ".color.jpg")).string(),
+                cv::Mat rendered_img = evalRgbImage(render_res["rgb"]);
+                writeEvalImage((fs::path(eval_path) / "render" / (frame_file_name + ".color" + eval_image_extension)).string(),
                             rendered_img);
                 // save compare image
                 cv::Mat comp_image = colorCompImg(rendered_rgb, gt_rgb, 0, color_error_max);
-                cv::imwrite((fs::path(eval_path) / "comp" / (frame_file_name + ".color.jpg")).string(),
+                writeEvalImage((fs::path(eval_path) / "comp" / (frame_file_name + ".color" + eval_image_extension)).string(),
                             comp_image);
             }
 
@@ -458,7 +499,7 @@ void Pipeline::renderEvalImgs(RawGaussianModel &model, const std::vector<Camera>
             {
                 torch::Tensor rendered_alpha = render_res["alpha"];
                 cv::Mat alpha_image = tensorToJetMat(rendered_alpha, 0, 1, false);
-                cv::imwrite((fs::path(eval_path) / "render" / (frame_file_name + ".alpha.jpg")).string(),
+                writeEvalImage((fs::path(eval_path) / "render" / (frame_file_name + ".alpha.jpg")).string(),
                             alpha_image);
             }
 
@@ -466,17 +507,17 @@ void Pipeline::renderEvalImgs(RawGaussianModel &model, const std::vector<Camera>
             {
                 torch::Tensor rendered_depth = render_res["depth"];
                 cv::Mat rendered_img = tensorToJetMat(rendered_depth, 0, depth_vis_max, true);
-                cv::imwrite((fs::path(eval_path) / "render" / (frame_file_name + ".depth.jpg")).string(),
+                writeEvalImage((fs::path(eval_path) / "render" / (frame_file_name + ".depth.jpg")).string(),
                             rendered_img);
                 if (cam.has_depth)
                 {
                     torch::Tensor gt_depth = cam.depth;
                     // cv::Mat gt_depth_img = tensorToJetMat(gt_depth, 0, depth_vis_max, true);
-                    // cv::imwrite((fs::path(eval_path) / "gt" / (frame_file_name + ".depth.jpg")).string(),
+                    // writeEvalImage((fs::path(eval_path) / "gt" / (frame_file_name + ".depth.jpg")).string(),
                     //             rendered_img);
                     // save compare image
                     cv::Mat comp_depth = depthCompImg(rendered_depth, gt_depth, 0, depth_vis_max, 0, depth_error_max);
-                    cv::imwrite((fs::path(eval_path) / "comp" / (frame_file_name + ".depth.jpg")).string(),
+                    writeEvalImage((fs::path(eval_path) / "comp" / (frame_file_name + ".depth.jpg")).string(),
                                 comp_depth);
                 }
             }

@@ -20,13 +20,7 @@ T configValue(const YAML::Node &node, const char *key, const T &default_value)
 
 const char *compiledHashProfile()
 {
-#ifdef GPS_SLAM_COMPACT_HASH
-    return "compact_64k";
-#elif defined(GPS_SLAM_MEDIUM_HASH)
-    return "medium_128k";
-#else
-    return "legacy_large";
-#endif
+    return GPS_SLAM_COMPILED_HASH_PROFILE;
 }
 
 int residentMapCount(const YAML::Node &multi_cfg)
@@ -222,6 +216,11 @@ void validateTsdfConfig(const YAML::Node &config)
     const std::string backend = configValue<std::string>(config, "engine", "basic");
     if (backend != "basic" && backend != "multi")
         throw std::runtime_error("Unknown PIPE.TSDF.engine: " + backend);
+    if (config["expected_hash_profile"] &&
+        config["expected_hash_profile"].as<std::string>() != compiledHashProfile())
+        throw std::runtime_error("PIPE.TSDF.expected_hash_profile does not match the compiled binary");
+    if (configValue<bool>(config, "basic_capacity_diagnostics", false) && backend != "basic")
+        throw std::runtime_error("basic_capacity_diagnostics requires PIPE.TSDF.engine=basic");
     const std::string failure_mode =
         configValue<std::string>(config, "tracking_failure_mode", "legacy_ignore");
     (void)trackingFailureMode(failure_mode);
@@ -252,6 +251,9 @@ void validateTsdfConfig(const YAML::Node &config)
             "PIPE.TSDF.basic_debug_tracking_start_frame/end_frame must be unset or a valid inclusive range");
     if (backend == "multi")
     {
+#ifdef GPS_SLAM_CAPACITY_CONTROL
+        throw std::runtime_error("Capacity-control binaries support only PIPE.TSDF.engine=basic");
+#endif
         const YAML::Node multi_cfg = config["multi"];
         const std::string boundary_policy = configValue<std::string>(multi_cfg, "boundary_policy", "visibility");
         if (boundary_policy != "visibility" && boundary_policy != "capacity")
@@ -725,6 +727,8 @@ TsdfEngineFacade *createTsdfEngine(DatasetReader &data_reader, const YAML::Node 
                   << std::endl;
         auto *basic = new ITMBasicEngine<ITMVoxel, ITMVoxelIndex>(internalSettings, rgbd_calib, image_size, image_size);
         basic->setRejectNonFiniteTrackingPose(configValue<bool>(config, "reject_nonfinite_tracking_pose", false));
+        if (configValue<bool>(config, "basic_capacity_diagnostics", false))
+            basic->configureCapacityDiagnostics((fs::path(workspace_dir) / "basic_capacity_diagnostics.csv").string());
         const int debug_start = configValue<int>(config, "basic_debug_tracking_start_frame", -1);
         const int debug_end = configValue<int>(config, "basic_debug_tracking_end_frame", -1);
         if (debug_start >= 0 && debug_end >= debug_start)

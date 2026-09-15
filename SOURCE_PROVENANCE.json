@@ -1,0 +1,350 @@
+{
+  "native_source_scope": "thor_repair_v3_20260910 GPS-SLAM; private benchmark outcomes are not part of this repository",
+  "freeze_sha256": "475e447ffa28ad226fdafa096ac9a4233a85cc3021f8749f1e711d9a4944ed52",
+  "native_imports": {
+    "CMakeLists.txt": "df7225ae13c3f68b0fc466137dd178cba765865264c9a30528f22e8550e07bef",
+    "slam_trainer.cpp": "2e47dcbf9223a00c7e819add332eafc20337310c69e328ead88c3964f7e25eef",
+    "InfiniTAM/ITMLib/Core/ITMBasicEngine.h": "5024fa4e85a4f093bcc2ddf3c3555aee5387301b0b7d0ad81af01d37a3d3d939",
+    "InfiniTAM/ITMLib/Core/ITMBasicEngine.tpp": "3d0c2352191988b995c10547b3a1a1566e4575d13afaa5bfbe5d4844abc5f178",
+    "InfiniTAM/ITMLib/Engines/Reconstruction/CUDA/ITMSceneReconstructionEngine_CUDA.tcu": "1d2e972fe538ce00373999b4cf34317245157ad53d53b2dea56da6b8a5fc0847",
+    "InfiniTAM/ITMLib/Objects/Scene/ITMScene.h": "5feccf838b02751f7c643b98b2915ef1d3d7d93bffe307dd4a0e76def8d5b913",
+    "InfiniTAM/ITMLib/Objects/Scene/ITMVoxelBlockHash.h": "0a2fd69b83930b5838e9232dc73d01eb026cb0e34e60fdf75bb42251e785f2bd",
+    "InfiniTAM/ITMLib/Utils/ITMCUDAUtils.h": "dfda3c59a1491b618151deeeed49c780f5d7a1a96414728b136191f11e2fe421",
+    "gsplat/rasterizer/isect_tiles_no_depth.cu": "6429923d8f0611190c802dd6740b8700fbe9a6e5d31f422942b31f0b95f92adc",
+    "include/pipeline.h": "575a8eca03d76a73a8c18e4f2d4766a6492db01c0c7534aa9d51c5ccf9c2b05f",
+    "slam/InfiniTAM_tools.cpp": "fa77785d7b19a13add8fef903adc8c053788f4428bae1dff0c2ea0e5a99dbdb4",
+    "slam/slam_pipeline.cpp": "bbf913b0d5e4b26317ffcb34e722bdc42571e04311e671ba7a901a513d80875a",
+    "src/dataset_reader.cpp": "a9330fe4a8e3dff4148c2d4fe7877d1882a59ad1e67006412227e178a45dc05a",
+    "src/file_utils.cpp": "b6ee40683fb8c82b629bc06324e1bc5c91ed284ae565341d6d1b01b76ed7350e",
+    "src/pipeline.cpp": "c984922c6efcd69e5e0ddea442f511b928474fb9ad7590377b4bd1361299dfa5",
+    "scripts/metric.py": "fdaa4cfbe04e9eec672e73edb57c1e03db1a60ec7c2a2f1badb8a1e362621e99",
+    "scripts/metric_general.py": "8665fe9450122629329018afc7c0753f78aed1c9c7a09dadbda03465af4605a1",
+    "scripts/metric_sampled_eval.py": "8e00dabf8fc617d811270550acabb4b3e917331ad355d643513f5ee1815bc581",
+    "scripts/thor_build.sh": "9d5e1054ecd20755acdd7a4d3a37956f4f5e03e06e467be0e13144e042fdc399",
+    "scripts/thor_post_build_check.py": "a7c62c978a8b0dc14fb6f90814fb4c555a8ee2785ab74410b875f4172e0ebed6",
+    "scripts/thor_telemetry.py": "01129ffa97ccbdc1cfede0f823762fd1d45778ce0453e15de4d8d7bd0b23bf8f",
+    "cmake/TSDFCapacityProfiles.cmake": "c648bceaeacee862f543aa8d44b767b5fddf1e90ea681394aa29f960c1d9e662",
+    "InfiniTAM/ITMLib/Objects/Scene/ITMHashCapacity.h": "4300141763b87e903864173af94f771c76858a6194e7881ce610d0057b7111f3",
+    "scripts/capacity_diagnostics_review.py": "0f281cdb5f964eb5aee9fc463afe8aa9a64f40e01d921d1817791bf9b34bf3fa",
+    "scripts/capacity_profiles_regression.py": "679cfa8af6cd263eb94e80f006850681b2db471c0b9f27de80c6f03bbac92fed",
+    "scripts/capacity_rasterizer_inventory.py": "b8b36c1af9cea57defc3a25a81b6a07ea61fcf009baa887a807f4d3a3e97c712",
+    "scripts/cuda_prefix_regression.cu": "a635568ca99d17f44d694163c4366c49eda91370dc6c24865d08d1be4676c389",
+    "scripts/final_native_regression.py": "8b230e4fff49deb57871bf6de7cbf303e870c1880752a66d7dd2bd029e27e98a",
+    "scripts/rasterizer_edge_regression.cpp": "0c904f6f61d0ef1ac8a137af9a4ff364b7bfe2970670d04bdf9c98b782c40533",
+    "scripts/torch_transform_initcheck.py": "074b0831eef02174af6f3cc91546e73da3244d43fd8e35f37efd61bab7874dfd"
+  },
+  "configuration_imports": [
+    {
+      "file": "configs/final/tum/fr1_desk.yaml",
+      "source": "thor_comparison/runs/thor_repair_v3_20260910/external/tum/fr1_desk/rep01/gps_slam/attempt_01/gps_config.yaml",
+      "source_sha256": "b135d49a5aca6092d077ee52204960cf72b2c57170e6554a3e4a8eedaadce511",
+      "adapted_fields": [
+        "workspace_dir",
+        "READER.input_dir",
+        "FINAL_BENCHMARK (non-runtime label removed)"
+      ],
+      "numeric_settings_unchanged": true,
+      "release_sha256": "3257ede81cb25109c8d881dbe52db172e1abeaaa24aa85b97828b7d38c6e2d85"
+    },
+    {
+      "file": "configs/final/tum/fr2_xyz.yaml",
+      "source": "thor_comparison/runs/thor_repair_v3_20260910/external/tum/fr2_xyz/rep01/gps_slam/attempt_01/gps_config.yaml",
+      "source_sha256": "ce9c46681ec92069110b509d356e6ad69d7cbaaefcbf659340ab0afec7c2778c",
+      "adapted_fields": [
+        "workspace_dir",
+        "READER.input_dir",
+        "FINAL_BENCHMARK (non-runtime label removed)"
+      ],
+      "numeric_settings_unchanged": true,
+      "release_sha256": "6b390f747c2404d6f3d019f44a5b79b09d83c55d1db6f856f5730923d2c819a7"
+    },
+    {
+      "file": "configs/final/tum/fr3_office.yaml",
+      "source": "thor_comparison/runs/thor_repair_v3_20260910/external/tum/fr3_office/rep01/gps_slam/attempt_01/gps_config.yaml",
+      "source_sha256": "53dcebebca3712424ae5865cfdccec19bcc72e90e6b83a015e273aa08e765d37",
+      "adapted_fields": [
+        "workspace_dir",
+        "READER.input_dir",
+        "FINAL_BENCHMARK (non-runtime label removed)"
+      ],
+      "numeric_settings_unchanged": true,
+      "release_sha256": "7a2992da9f4584b0300f26928cb849463e3bf70f9ad3d12af42f4ad461032b86"
+    },
+    {
+      "file": "configs/final/replica/office0.yaml",
+      "source": "thor_comparison/runs/thor_repair_v3_20260910/external/replica/office0/rep01/gps_slam/attempt_01/gps_config.yaml",
+      "source_sha256": "ea7a6fb1eb556c1738071379e8a371ef444a00e8f3be0c5d7e15bfcd0a805e62",
+      "adapted_fields": [
+        "workspace_dir",
+        "READER.input_dir",
+        "FINAL_BENCHMARK (non-runtime label removed)"
+      ],
+      "numeric_settings_unchanged": true,
+      "release_sha256": "3cf7393c42b652274e66fede9fce958e9295de3c0de92918943bd1a6fdcbcd37"
+    },
+    {
+      "file": "configs/final/replica/office0_eval.yaml",
+      "source": "thor_comparison/prepared/repair_v3/configs/external/replica/office0/rep01/gps_slam_eval.yaml",
+      "source_sha256": "d3a045abba5159859b7c5db04f909abe8ac3e1557b711c7a6735518196db6276",
+      "adapted_fields": [
+        "workspace_dir",
+        "READER.input_dir",
+        "FINAL_BENCHMARK (non-runtime label removed)"
+      ],
+      "numeric_settings_unchanged": true,
+      "release_sha256": "d06b780a9a7d43ac97a11bb27b5a98c4915d2211b738de22176eb2232dad8a3a"
+    },
+    {
+      "file": "configs/final/replica/office1.yaml",
+      "source": "thor_comparison/runs/thor_repair_v3_20260910/external/replica/office1/rep01/gps_slam/attempt_01/gps_config.yaml",
+      "source_sha256": "b9abacdfbcfac6d2e6a2d2b56d4e6dbb1da26cea23c2081a8c40985b76977319",
+      "adapted_fields": [
+        "workspace_dir",
+        "READER.input_dir",
+        "FINAL_BENCHMARK (non-runtime label removed)"
+      ],
+      "numeric_settings_unchanged": true,
+      "release_sha256": "03948fdc9781d344b8925866ac7d627bea9b908295995ef8c94692df3bd2fa44"
+    },
+    {
+      "file": "configs/final/replica/office1_eval.yaml",
+      "source": "thor_comparison/prepared/repair_v3/configs/external/replica/office1/rep01/gps_slam_eval.yaml",
+      "source_sha256": "7f0a2b19f33ef6d11a3b32e12dd6ae3622233352af6db2b3ec754efc7bd13775",
+      "adapted_fields": [
+        "workspace_dir",
+        "READER.input_dir",
+        "FINAL_BENCHMARK (non-runtime label removed)"
+      ],
+      "numeric_settings_unchanged": true,
+      "release_sha256": "1b042a9c9ea36e026327863c256d335ac1b0fb861356382ac8c3925d8d868bfa"
+    },
+    {
+      "file": "configs/final/replica/office2.yaml",
+      "source": "thor_comparison/runs/thor_repair_v3_20260910/external/replica/office2/rep01/gps_slam/attempt_01/gps_config.yaml",
+      "source_sha256": "68956067b7eab66d6e6ce0f7300466fb04158de4363270b7752c8e6208454235",
+      "adapted_fields": [
+        "workspace_dir",
+        "READER.input_dir",
+        "FINAL_BENCHMARK (non-runtime label removed)"
+      ],
+      "numeric_settings_unchanged": true,
+      "release_sha256": "c7a611f870da693868965bd4ca8f6146a2b42c14af7db12814b16c518accb898"
+    },
+    {
+      "file": "configs/final/replica/office2_eval.yaml",
+      "source": "thor_comparison/prepared/repair_v3/configs/external/replica/office2/rep01/gps_slam_eval.yaml",
+      "source_sha256": "377f832c7c6bf080880ace7fe9a97268a8089a1a30035ddeb2b773aa4c3e22c1",
+      "adapted_fields": [
+        "workspace_dir",
+        "READER.input_dir",
+        "FINAL_BENCHMARK (non-runtime label removed)"
+      ],
+      "numeric_settings_unchanged": true,
+      "release_sha256": "7d638d22e74d99fa8bfdcd3e927c963650d49cd59dcdd5d6967c6f726bfe90f0"
+    },
+    {
+      "file": "configs/final/replica/office3.yaml",
+      "source": "thor_comparison/runs/thor_repair_v3_20260910/external/replica/office3/rep01/gps_slam/attempt_01/gps_config.yaml",
+      "source_sha256": "1ee43d2597986b707921544721a2ef544a22a2849b0453ce46b39a624234369e",
+      "adapted_fields": [
+        "workspace_dir",
+        "READER.input_dir",
+        "FINAL_BENCHMARK (non-runtime label removed)"
+      ],
+      "numeric_settings_unchanged": true,
+      "release_sha256": "e61260919339d8ded67064d7aa3c87292aa5b1f78b45657ab23951c4b48c0c63"
+    },
+    {
+      "file": "configs/final/replica/office3_eval.yaml",
+      "source": "thor_comparison/prepared/repair_v3/configs/external/replica/office3/rep01/gps_slam_eval.yaml",
+      "source_sha256": "f6a6511461bc13772f788e645a2f0b3fcec071aeabc21758e32e38e8c7a3123b",
+      "adapted_fields": [
+        "workspace_dir",
+        "READER.input_dir",
+        "FINAL_BENCHMARK (non-runtime label removed)"
+      ],
+      "numeric_settings_unchanged": true,
+      "release_sha256": "f7900f21afedaa5a476b7066ff61b863e44163789ad62c1d4da5db33b4fc27d3"
+    },
+    {
+      "file": "configs/final/replica/office4.yaml",
+      "source": "thor_comparison/runs/thor_repair_v3_20260910/external/replica/office4/rep01/gps_slam/attempt_01/gps_config.yaml",
+      "source_sha256": "0e24dd9c625b400d239886c045b57d0b08629b7e599a17788af557f7abbaf35d",
+      "adapted_fields": [
+        "workspace_dir",
+        "READER.input_dir",
+        "FINAL_BENCHMARK (non-runtime label removed)"
+      ],
+      "numeric_settings_unchanged": true,
+      "release_sha256": "dba762f54dfaaa955e67a53a73f807879f42a4ab81f58cf771062b6f07454e66"
+    },
+    {
+      "file": "configs/final/replica/office4_eval.yaml",
+      "source": "thor_comparison/prepared/repair_v3/configs/external/replica/office4/rep01/gps_slam_eval.yaml",
+      "source_sha256": "351b7609312a07e6c909f042ee9ddf2eb4af9022d097665298ecc2e24bd24f53",
+      "adapted_fields": [
+        "workspace_dir",
+        "READER.input_dir",
+        "FINAL_BENCHMARK (non-runtime label removed)"
+      ],
+      "numeric_settings_unchanged": true,
+      "release_sha256": "5e59ea7566dde11da147a116dead65bb59109e149c7b86f0adc8cb4333e90753"
+    },
+    {
+      "file": "configs/final/replica/room0.yaml",
+      "source": "thor_comparison/runs/thor_repair_v3_20260910/external/replica/room0/rep01/gps_slam/attempt_01/gps_config.yaml",
+      "source_sha256": "9f5b702a4b4278011ce4f1f3ff4a06871c942a9b2a92151aeaa4f9c346960005",
+      "adapted_fields": [
+        "workspace_dir",
+        "READER.input_dir",
+        "FINAL_BENCHMARK (non-runtime label removed)"
+      ],
+      "numeric_settings_unchanged": true,
+      "release_sha256": "a377808b092259b65296b4a7eae0ce41eaea845c415e22a06031b554b0c7f64d"
+    },
+    {
+      "file": "configs/final/replica/room0_eval.yaml",
+      "source": "thor_comparison/prepared/repair_v3/configs/external/replica/room0/rep01/gps_slam_eval.yaml",
+      "source_sha256": "3695f01a3fcc6c4fd6a93e355c135385e631e44094f14bb179486700ab9b7a48",
+      "adapted_fields": [
+        "workspace_dir",
+        "READER.input_dir",
+        "FINAL_BENCHMARK (non-runtime label removed)"
+      ],
+      "numeric_settings_unchanged": true,
+      "release_sha256": "ab919739c01fafe60b5a52fcb8a5d51ddc5c28e1c13fb8a6c77b15035e6fc7a3"
+    },
+    {
+      "file": "configs/final/replica/room1.yaml",
+      "source": "thor_comparison/runs/thor_repair_v3_20260910/external/replica/room1/rep01/gps_slam/attempt_01/gps_config.yaml",
+      "source_sha256": "dd664dd04b19fe0cacdb242493fd1a88ede81641a61cef171d8202a673efb29e",
+      "adapted_fields": [
+        "workspace_dir",
+        "READER.input_dir",
+        "FINAL_BENCHMARK (non-runtime label removed)"
+      ],
+      "numeric_settings_unchanged": true,
+      "release_sha256": "e827f7d1406f2e9ebfb4600f021588521a81279185cca0aa14a54ef15b27cfd4"
+    },
+    {
+      "file": "configs/final/replica/room1_eval.yaml",
+      "source": "thor_comparison/prepared/repair_v3/configs/external/replica/room1/rep01/gps_slam_eval.yaml",
+      "source_sha256": "168cd19dfc8db479ace2ffaa6cfd035b65607babca77826aec8a76c95830a755",
+      "adapted_fields": [
+        "workspace_dir",
+        "READER.input_dir",
+        "FINAL_BENCHMARK (non-runtime label removed)"
+      ],
+      "numeric_settings_unchanged": true,
+      "release_sha256": "53120d9062d96076eed2a56e99d4d7fecb2e2ae092deccf8b9e60f6b5a19c7a3"
+    },
+    {
+      "file": "configs/final/replica/room2.yaml",
+      "source": "thor_comparison/runs/thor_repair_v3_20260910/external/replica/room2/rep01/gps_slam/attempt_01/gps_config.yaml",
+      "source_sha256": "a46a69d6ef89289fb913e1b2ad98465616559a2edf5657c29915b2df97758cb6",
+      "adapted_fields": [
+        "workspace_dir",
+        "READER.input_dir",
+        "FINAL_BENCHMARK (non-runtime label removed)"
+      ],
+      "numeric_settings_unchanged": true,
+      "release_sha256": "4a76f02342c495ac46b3ae9e48d363cd91913d4e61282c868d76b883894abf9b"
+    },
+    {
+      "file": "configs/final/replica/room2_eval.yaml",
+      "source": "thor_comparison/prepared/repair_v3/configs/external/replica/room2/rep01/gps_slam_eval.yaml",
+      "source_sha256": "f7c6fa2697096e2176b34c977199f481445be8b4f97c412c7c398ec6b572f193",
+      "adapted_fields": [
+        "workspace_dir",
+        "READER.input_dir",
+        "FINAL_BENCHMARK (non-runtime label removed)"
+      ],
+      "numeric_settings_unchanged": true,
+      "release_sha256": "348ba847f494b69662ade037fa97f46041bc9ad71508dd193229c18a95304543"
+    },
+    {
+      "file": "configs/final/original/tum/fr1_desk.yaml",
+      "source": "thor_comparison/runs/thor_repair_v3_20260910/parent_tracking/tum/fr1_desk/rep01/original_capacity/attempt_01/gps_config.yaml",
+      "source_sha256": "0b6b7f63f5009869032c529b72eca151d96c365caaf4d407867372b751211a52",
+      "adapted_fields": [
+        "workspace_dir",
+        "READER.input_dir",
+        "FINAL_BENCHMARK (non-runtime label removed)"
+      ],
+      "numeric_settings_unchanged": true,
+      "release_sha256": "141baa36fd5e254d7d68566766342fff2190f8b0aac0526587a4faa280c59b36"
+    },
+    {
+      "file": "configs/final/original/tum/fr2_xyz.yaml",
+      "source": "thor_comparison/runs/thor_repair_v3_20260910/parent_tracking/tum/fr2_xyz/rep01/original_capacity/attempt_01/gps_config.yaml",
+      "source_sha256": "a7869c9341c31da5ebfbbe4e1e2b3296155a55b352f4a6f9f4942e0cb0e1a39a",
+      "adapted_fields": [
+        "workspace_dir",
+        "READER.input_dir",
+        "FINAL_BENCHMARK (non-runtime label removed)"
+      ],
+      "numeric_settings_unchanged": true,
+      "release_sha256": "0b4ce760c8b22d727e6fb1f667caa0649f8b1028b6bb40d357b4d39c42b35072"
+    },
+    {
+      "file": "configs/final/original/tum/fr3_office.yaml",
+      "source": "thor_comparison/runs/thor_repair_v3_20260910/parent_tracking/tum/fr3_office/rep01/original_capacity/attempt_01/gps_config.yaml",
+      "source_sha256": "6793945c115b01ba59bae8926ff98a5fd5d4db3c0b9d3a66a987e5f74181af4c",
+      "adapted_fields": [
+        "workspace_dir",
+        "READER.input_dir",
+        "FINAL_BENCHMARK (non-runtime label removed)"
+      ],
+      "numeric_settings_unchanged": true,
+      "release_sha256": "94c69b873c75005f8dfb39f7338a90734f402e92e22dea814b973904d601e8f4"
+    }
+  ],
+  "evaluation_overlay": {
+    "id": "saved_overlap_v2",
+    "patch_sha256": "7a0a08d36bc60a8cbea7412cc651e256040baf185f3a6ac401a64396174d9993",
+    "file": "slam/slam_pipeline.cpp",
+    "result_sha256": "3f390628f9a1a9a0b8beb8756301f3c1d72fa2f3bfc6c727eb0e28b17e4f9560",
+    "scope": "Restore serialized frame-overlap assignment when rendering a reloaded map. No training branch change."
+  },
+  "retained_portable_release_base": "ca752124171a3ade379d6afdda85133c44c9bc6b",
+  "release_only_adaptations": [
+    "scripts/thor_container.sh: portable mounts, final image tag, explicit build profiles and CPU source check; final TF32/cuBLAS environment retained",
+    "scripts/thor_build.sh: explicit BasicEngine instrumentation selection for proposed build",
+    "scripts/benchmark_freeze.py: local manifest destination, final build names and complete source roots",
+    "scripts/final_native_regression.py: portable template and isolated BasicEngine fixture",
+    "Remove unneeded tinyply sample meshes; dependency implementation and licences retained",
+    "VERSION/CITATION/metadata, documentation, source checks and CI"
+  ],
+  "release_file_sha256": {
+    "CMakeLists.txt": "df7225ae13c3f68b0fc466137dd178cba765865264c9a30528f22e8550e07bef",
+    "slam_trainer.cpp": "2e47dcbf9223a00c7e819add332eafc20337310c69e328ead88c3964f7e25eef",
+    "InfiniTAM/ITMLib/Core/ITMBasicEngine.h": "5024fa4e85a4f093bcc2ddf3c3555aee5387301b0b7d0ad81af01d37a3d3d939",
+    "InfiniTAM/ITMLib/Core/ITMBasicEngine.tpp": "3d0c2352191988b995c10547b3a1a1566e4575d13afaa5bfbe5d4844abc5f178",
+    "InfiniTAM/ITMLib/Engines/Reconstruction/CUDA/ITMSceneReconstructionEngine_CUDA.tcu": "1d2e972fe538ce00373999b4cf34317245157ad53d53b2dea56da6b8a5fc0847",
+    "InfiniTAM/ITMLib/Objects/Scene/ITMScene.h": "5feccf838b02751f7c643b98b2915ef1d3d7d93bffe307dd4a0e76def8d5b913",
+    "InfiniTAM/ITMLib/Objects/Scene/ITMVoxelBlockHash.h": "0a2fd69b83930b5838e9232dc73d01eb026cb0e34e60fdf75bb42251e785f2bd",
+    "InfiniTAM/ITMLib/Utils/ITMCUDAUtils.h": "dfda3c59a1491b618151deeeed49c780f5d7a1a96414728b136191f11e2fe421",
+    "gsplat/rasterizer/isect_tiles_no_depth.cu": "6429923d8f0611190c802dd6740b8700fbe9a6e5d31f422942b31f0b95f92adc",
+    "include/pipeline.h": "575a8eca03d76a73a8c18e4f2d4766a6492db01c0c7534aa9d51c5ccf9c2b05f",
+    "slam/InfiniTAM_tools.cpp": "fa77785d7b19a13add8fef903adc8c053788f4428bae1dff0c2ea0e5a99dbdb4",
+    "slam/slam_pipeline.cpp": "3f390628f9a1a9a0b8beb8756301f3c1d72fa2f3bfc6c727eb0e28b17e4f9560",
+    "src/dataset_reader.cpp": "a9330fe4a8e3dff4148c2d4fe7877d1882a59ad1e67006412227e178a45dc05a",
+    "src/file_utils.cpp": "b6ee40683fb8c82b629bc06324e1bc5c91ed284ae565341d6d1b01b76ed7350e",
+    "src/pipeline.cpp": "c984922c6efcd69e5e0ddea442f511b928474fb9ad7590377b4bd1361299dfa5",
+    "scripts/metric.py": "fdaa4cfbe04e9eec672e73edb57c1e03db1a60ec7c2a2f1badb8a1e362621e99",
+    "scripts/metric_general.py": "8665fe9450122629329018afc7c0753f78aed1c9c7a09dadbda03465af4605a1",
+    "scripts/metric_sampled_eval.py": "8e00dabf8fc617d811270550acabb4b3e917331ad355d643513f5ee1815bc581",
+    "scripts/thor_build.sh": "6c66d7878cc564ec977677a29037ceaf148460dd7f3a7e5d49f90ee302ca3c66",
+    "scripts/thor_post_build_check.py": "a7c62c978a8b0dc14fb6f90814fb4c555a8ee2785ab74410b875f4172e0ebed6",
+    "scripts/thor_telemetry.py": "01129ffa97ccbdc1cfede0f823762fd1d45778ce0453e15de4d8d7bd0b23bf8f",
+    "cmake/TSDFCapacityProfiles.cmake": "c648bceaeacee862f543aa8d44b767b5fddf1e90ea681394aa29f960c1d9e662",
+    "InfiniTAM/ITMLib/Objects/Scene/ITMHashCapacity.h": "4300141763b87e903864173af94f771c76858a6194e7881ce610d0057b7111f3",
+    "scripts/capacity_diagnostics_review.py": "0f281cdb5f964eb5aee9fc463afe8aa9a64f40e01d921d1817791bf9b34bf3fa",
+    "scripts/capacity_profiles_regression.py": "679cfa8af6cd263eb94e80f006850681b2db471c0b9f27de80c6f03bbac92fed",
+    "scripts/capacity_rasterizer_inventory.py": "b8b36c1af9cea57defc3a25a81b6a07ea61fcf009baa887a807f4d3a3e97c712",
+    "scripts/cuda_prefix_regression.cu": "a635568ca99d17f44d694163c4366c49eda91370dc6c24865d08d1be4676c389",
+    "scripts/final_native_regression.py": "9ab7efacbea0866967a65b717a1ea20e41131a47f2c9b6fa0af6531f8e1873e3",
+    "scripts/rasterizer_edge_regression.cpp": "0c904f6f61d0ef1ac8a137af9a4ff364b7bfe2970670d04bdf9c98b782c40533",
+    "scripts/torch_transform_initcheck.py": "074b0831eef02174af6f3cc91546e73da3244d43fd8e35f37efd61bab7874dfd"
+  }
+}

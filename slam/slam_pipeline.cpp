@@ -10831,6 +10831,12 @@ void SLAMPipeline::SLAMTrainCams(SLAMGaussianModel &model, std::vector<Camera> &
     }
     if (export_online_end_trajectory && hasCorrectedPosesAvailable())
     {
+        // Export time is subtracted below. Complete outstanding algorithmic
+        // kernels first so an export-induced synchronization cannot hide work.
+        const cudaError_t export_boundary_status = cudaDeviceSynchronize();
+        if (export_boundary_status != cudaSuccess)
+            throw std::runtime_error(std::string("SLAM pre-export CUDA error: ") +
+                                     cudaGetErrorString(export_boundary_status));
 #ifdef LOG_PIPELINE_TIME
         struct timespec export_start, export_end;
         clock_gettime(CLOCK_MONOTONIC, &export_start);
@@ -10897,6 +10903,10 @@ void SLAMPipeline::SLAMTrainCams(SLAMGaussianModel &model, std::vector<Camera> &
             flushPendingPoseGraphTransformUpdates("end_of_sequence_after_live_update");
         }
     }
+    tsdf_engine->synchronizePaging();
+    const cudaError_t completion_status = cudaDeviceSynchronize();
+    if (completion_status != cudaSuccess)
+        throw std::runtime_error(std::string("SLAM completion CUDA error: ") + cudaGetErrorString(completion_status));
 #ifdef LOG_PIPELINE_TIME
     clock_gettime(CLOCK_MONOTONIC, &slam_end);
     auto slam_total_time = std::max(
@@ -12566,8 +12576,8 @@ void SLAMPipeline::startGaussianOptimizationJob(SLAMGaussianModel &model,
 
     const uint32_t local_opt_seed =
         uint32_t(random_seed) ^
-        uint32_t((curr_frame_id + 1) * 73856093) ^
-        uint32_t((active_submap_idx + 1) * 19349663);
+        ((uint32_t(curr_frame_id) + 1u) * 73856093u) ^
+        ((uint32_t(active_submap_idx) + 1u) * 19349663u);
     RandomSelector selector(job.cameras, {}, local_opt_seed, true);
     job.sample_indices.reserve(job.total_iterations);
     for (int iter = 0; iter < job.total_iterations; ++iter)
@@ -12729,8 +12739,8 @@ void SLAMPipeline::localOptimize(SLAMGaussianModel &model, int iter_override)
     model.initOptimizers(-1, scene_scale);
     const uint32_t local_opt_seed =
         uint32_t(random_seed) ^
-        uint32_t((curr_frame_id + 1) * 73856093) ^
-        uint32_t((active_submap_idx + 1) * 19349663);
+        ((uint32_t(curr_frame_id) + 1u) * 73856093u) ^
+        ((uint32_t(active_submap_idx) + 1u) * 19349663u);
     RandomSelector data_loader(opt_cam_list_ref, {}, local_opt_seed, true);
 #ifndef LOG_PIPELINE_TIME
     // ProgressBar
@@ -13154,7 +13164,7 @@ TensorDict SLAMPipeline::runRaycastByCam(const Camera &cam, bool use_cam_depth, 
         torch::Tensor w2c = poseInv(depth_pose_tensor).to(device);
         torch::Tensor transformed_vertices = verticesTransform(vertex_tensor, w2c);
         raycast_res["depth_map"] = transformed_vertices.index({torch::indexing::Slice(), torch::indexing::Slice(), 2}).unsqueeze(-1).contiguous();
-        torch::Tensor invalid_vertex_mask = (vertex_tensor.sum(2) == 0).unsqueeze(-1);
+        torch::Tensor invalid_vertex_mask = vertex_tensor.eq(0).all(2).unsqueeze(-1);
         raycast_res["depth_map"].masked_fill_(invalid_vertex_mask, 0);
     }
 
@@ -13630,7 +13640,7 @@ void SLAMPipeline::initNewGaussians(SLAMGaussianModel &model, TensorDict &raycas
 
     torch::Tensor sample_mask;
     auto valid_depth_mask = ((raycast_depth > depth_range_min) & (raycast_depth < depth_range_max)).to(model.device);
-    torch::Tensor valid_vertex_mask = (raycast_vertex.sum(2) == 0).unsqueeze(-1);
+    torch::Tensor valid_vertex_mask = raycast_vertex.eq(0).all(2).unsqueeze(-1);
     valid_depth_mask = valid_depth_mask & (~valid_vertex_mask);
 
     // std::cout << "valid depth ratio: " << (valid_depth_mask.sum() / (curr_cam.width * curr_cam.height)).item() << std::endl;
@@ -14174,8 +14184,8 @@ void SLAMPipeline::keyFrameRaycast(SLAMGaussianModel &model)
             // 随机选取历史关键帧
             const uint32_t keyframe_seed =
                 uint32_t(random_seed) ^
-                uint32_t((curr_frame_id + 1) * 83492791) ^
-                uint32_t((active_submap_idx + 1) * 2654435761u);
+                ((uint32_t(curr_frame_id) + 1u) * 83492791u) ^
+                ((uint32_t(active_submap_idx) + 1u) * 2654435761u);
             RandomSelector data_loader(keyframe_cam_list_ref, {}, keyframe_seed, true);
             selected_keyframe_indices.reserve(global_select_num);
             for (int i = 0; i < global_select_num; i++)
@@ -14595,6 +14605,8 @@ void SLAMPipeline::writeOnlineEndTrajectory(const std::vector<Camera> &cams) con
         {"schema_version", 1},
         {"trajectory_stage", "before_terminal_pose_graph"},
         {"causal_online_result", true},
+        {"trajectory_semantics", "poses_corrected_up_to_end_of_input_before_terminal_work"},
+        {"first_return_online_trajectory", false},
         {"frame_count", cams.size()},
         {"last_sequence_id", curr_frame_id},
         {"last_dataset_frame_id", curr_dataset_frame_id},
@@ -20034,6 +20046,15 @@ void SLAMPipeline::renderEvalImgsSubmaps(const std::vector<Camera> &cams, std::v
 
         render_cam.owner_submap_id = owner_sdf_id;
         const int frame_id = cameraFrameId(render_cam);
+        // Restore the exact recorded overlap assignment before Gaussian
+        // selection. An empty reloaded Camera must not expand that assignment
+        // through temporal inference; live cameras already carry this list.
+        if (render_cam.overlap_submap_ids.empty())
+        {
+            const auto overlaps_it = frame_overlap_submaps.find(frame_id);
+            if (overlaps_it != frame_overlap_submaps.end())
+                render_cam.overlap_submap_ids = overlaps_it->second;
+        }
         const bool has_local_pose_for_correction =
             (render_cam.has_local_pose && render_cam.c2w_local.defined() &&
              render_cam.c2w_local.sizes() == torch::IntArrayRef({4, 4}) &&
@@ -20205,19 +20226,19 @@ void SLAMPipeline::renderEvalImgsSubmaps(const std::vector<Camera> &cams, std::v
         torch::Tensor raycast_depth = raycast_res["depth_map"];
 
         cv::Mat raycast_color_img = tensorToImage(raycast_color);
-        cv::imwrite((fs::path(eval_path) / "raycast_color" / ("frame" + cam.getFrameID() + ".color.jpg")).string(),
+        writeEvalImage((fs::path(eval_path) / "raycast_color" / ("frame" + cam.getFrameID() + ".color.jpg")).string(),
                     raycast_color_img);
         torch::Tensor gt_rgb = cam.image;
         cv::Mat raycast_comp_image = colorCompImg(raycast_color, gt_rgb, 0, color_error_max);
-        cv::imwrite((fs::path(eval_path) / "raycast_color" / ("frame" + cam.getFrameID() + "_comp.color.jpg")).string(),
+        writeEvalImage((fs::path(eval_path) / "raycast_color" / ("frame" + cam.getFrameID() + "_comp.color.jpg")).string(),
                     raycast_comp_image);
 
         cv::Mat raycast_depth_img = tensorToDepth(raycast_depth);
-        cv::imwrite((fs::path(eval_path) / "raycast_depth" / ("frame" + cam.getFrameID() + ".depth.png")).string(),
+        writeEvalImage((fs::path(eval_path) / "raycast_depth" / ("frame" + cam.getFrameID() + ".depth.png")).string(),
                     raycast_depth_img);
         torch::Tensor gt_depth = cam.depth;
         cv::Mat comp_depth = depthCompImg(raycast_depth, gt_depth, 0, depth_vis_max, 0, depth_error_max);
-        cv::imwrite((fs::path(eval_path) / "raycast_depth" / ("frame" + cam.getFrameID() + "_comp.depth.png")).string(), comp_depth);
+        writeEvalImage((fs::path(eval_path) / "raycast_depth" / ("frame" + cam.getFrameID() + "_comp.depth.png")).string(), comp_depth);
 
         if (tsdf_render_prefetch && tsdf_engine->isPagingEnabled() &&
             gaussian_submap_coordinate_frame == "local" &&
@@ -20317,16 +20338,17 @@ void SLAMPipeline::renderEvalImgsSubmaps(const std::vector<Camera> &cams, std::v
         {
             if (name == "rgb")
             {
-                torch::Tensor rendered_rgb = selected_gs > 0 ? torch::clamp(render_res["rgb"], 0, 1) : raycast_color;
+                const torch::Tensor scored_rgb = selected_gs > 0 ? render_res["rgb"] : raycast_color;
+                torch::Tensor rendered_rgb = torch::clamp(scored_rgb, 0, 1);
 
                 cv::Mat gt_img = tensorToImage(gt_rgb);
-                cv::imwrite((fs::path(eval_path) / "gt" / (frame_file_name + ".color.jpg")).string(),
+                writeEvalImage((fs::path(eval_path) / "gt" / (frame_file_name + ".color" + eval_image_extension)).string(),
                             gt_img);
-                cv::Mat rendered_img = tensorToImage(rendered_rgb);
-                cv::imwrite((fs::path(eval_path) / "render" / (frame_file_name + ".color.jpg")).string(),
+                cv::Mat rendered_img = evalRgbImage(scored_rgb);
+                writeEvalImage((fs::path(eval_path) / "render" / (frame_file_name + ".color" + eval_image_extension)).string(),
                             rendered_img);
                 cv::Mat comp_image = colorCompImg(rendered_rgb, gt_rgb, 0, color_error_max);
-                cv::imwrite((fs::path(eval_path) / "comp" / (frame_file_name + ".color.jpg")).string(),
+                writeEvalImage((fs::path(eval_path) / "comp" / (frame_file_name + ".color" + eval_image_extension)).string(),
                             comp_image);
             }
 
@@ -20334,7 +20356,7 @@ void SLAMPipeline::renderEvalImgsSubmaps(const std::vector<Camera> &cams, std::v
             {
                 torch::Tensor rendered_alpha = render_res["alpha"];
                 cv::Mat alpha_image = tensorToJetMat(rendered_alpha, 0, 1, false);
-                cv::imwrite((fs::path(eval_path) / "render" / (frame_file_name + ".alpha.jpg")).string(),
+                writeEvalImage((fs::path(eval_path) / "render" / (frame_file_name + ".alpha.jpg")).string(),
                             alpha_image);
             }
 
@@ -20342,11 +20364,11 @@ void SLAMPipeline::renderEvalImgsSubmaps(const std::vector<Camera> &cams, std::v
             {
                 torch::Tensor rendered_depth = render_res["depth"];
                 cv::Mat rendered_img = tensorToJetMat(rendered_depth, 0, depth_vis_max, true);
-                cv::imwrite((fs::path(eval_path) / "render" / (frame_file_name + ".depth.jpg")).string(), rendered_img);
+                writeEvalImage((fs::path(eval_path) / "render" / (frame_file_name + ".depth.jpg")).string(), rendered_img);
                 if (cam.has_depth)
                 {
                     cv::Mat render_comp_depth = depthCompImg(rendered_depth, gt_depth, 0, depth_vis_max, 0, depth_error_max);
-                    cv::imwrite((fs::path(eval_path) / "comp" / (frame_file_name + ".depth.jpg")).string(),
+                    writeEvalImage((fs::path(eval_path) / "comp" / (frame_file_name + ".depth.jpg")).string(),
                                 render_comp_depth);
                 }
             }
@@ -20534,19 +20556,19 @@ void SLAMPipeline::renderEvalImgs(SLAMGaussianModel &model, const std::vector<Ca
         torch::Tensor raycast_depth = raycast_res["depth_map"];
         // save raycast image
         cv::Mat raycast_color_img = tensorToImage(raycast_color);
-        cv::imwrite((fs::path(eval_path) / "raycast_color" / ("frame" + cam.getFrameID() + ".color.jpg")).string(),
+        writeEvalImage((fs::path(eval_path) / "raycast_color" / ("frame" + cam.getFrameID() + ".color.jpg")).string(),
                     raycast_color_img);
         torch::Tensor gt_rgb = cam.image;
         cv::Mat comp_image = colorCompImg(raycast_color, gt_rgb, 0, color_error_max);
-        cv::imwrite((fs::path(eval_path) / "raycast_color" / ("frame" + cam.getFrameID() + "_comp.color.jpg")).string(),
+        writeEvalImage((fs::path(eval_path) / "raycast_color" / ("frame" + cam.getFrameID() + "_comp.color.jpg")).string(),
                     comp_image);
         // save raycast depth
         cv::Mat raycast_depth_img = tensorToDepth(raycast_depth);
-        cv::imwrite((fs::path(eval_path) / "raycast_depth" / ("frame" + cam.getFrameID() + ".depth.png")).string(),
+        writeEvalImage((fs::path(eval_path) / "raycast_depth" / ("frame" + cam.getFrameID() + ".depth.png")).string(),
                     raycast_depth_img);
         torch::Tensor gt_depth = cam.depth;
         cv::Mat comp_depth = depthCompImg(raycast_depth, gt_depth, 0, depth_vis_max, 0, depth_error_max);
-        cv::imwrite((fs::path(eval_path) / "raycast_depth" / ("frame" + cam.getFrameID() + "_comp.depth.png")).string(), comp_depth);
+        writeEvalImage((fs::path(eval_path) / "raycast_depth" / ("frame" + cam.getFrameID() + "_comp.depth.png")).string(), comp_depth);
 
         if (model.getGaussianNum() > 0)
         {
@@ -20560,15 +20582,15 @@ void SLAMPipeline::renderEvalImgs(SLAMGaussianModel &model, const std::vector<Ca
 
                     // save gt image
                     cv::Mat gt_img = tensorToImage(gt_rgb);
-                    cv::imwrite((fs::path(eval_path) / "gt" / (frame_file_name + ".color.jpg")).string(),
+                    writeEvalImage((fs::path(eval_path) / "gt" / (frame_file_name + ".color" + eval_image_extension)).string(),
                                 gt_img);
                     // save render image
-                    cv::Mat rendered_img = tensorToImage(rendered_rgb);
-                    cv::imwrite((fs::path(eval_path) / "render" / (frame_file_name + ".color.jpg")).string(),
+                    cv::Mat rendered_img = evalRgbImage(render_res["rgb"]);
+                    writeEvalImage((fs::path(eval_path) / "render" / (frame_file_name + ".color" + eval_image_extension)).string(),
                                 rendered_img);
                     // save compare image
                     cv::Mat comp_image = colorCompImg(rendered_rgb, gt_rgb, 0, color_error_max);
-                    cv::imwrite((fs::path(eval_path) / "comp" / (frame_file_name + ".color.jpg")).string(),
+                    writeEvalImage((fs::path(eval_path) / "comp" / (frame_file_name + ".color" + eval_image_extension)).string(),
                                 comp_image);
                 }
 
@@ -20576,7 +20598,7 @@ void SLAMPipeline::renderEvalImgs(SLAMGaussianModel &model, const std::vector<Ca
                 {
                     torch::Tensor rendered_alpha = render_res["alpha"];
                     cv::Mat alpha_image = tensorToJetMat(rendered_alpha, 0, 1, false);
-                    cv::imwrite((fs::path(eval_path) / "render" / (frame_file_name + ".alpha.jpg")).string(),
+                    writeEvalImage((fs::path(eval_path) / "render" / (frame_file_name + ".alpha.jpg")).string(),
                                 alpha_image);
                 }
 
@@ -20584,13 +20606,13 @@ void SLAMPipeline::renderEvalImgs(SLAMGaussianModel &model, const std::vector<Ca
                 {
                     torch::Tensor rendered_depth = render_res["depth"];
                     cv::Mat rendered_img = tensorToJetMat(rendered_depth, 0, depth_vis_max, true);
-                    cv::imwrite((fs::path(eval_path) / "render" / (frame_file_name + ".depth.jpg")).string(), rendered_img);
+                    writeEvalImage((fs::path(eval_path) / "render" / (frame_file_name + ".depth.jpg")).string(), rendered_img);
                     if (cam.has_depth)
                     {
                         torch::Tensor gt_depth = cam.depth;
                         // save compare image
                         cv::Mat comp_depth = depthCompImg(rendered_depth, gt_depth, 0, depth_vis_max, 0, depth_error_max);
-                        cv::imwrite((fs::path(eval_path) / "comp" / (frame_file_name + ".depth.jpg")).string(),
+                        writeEvalImage((fs::path(eval_path) / "comp" / (frame_file_name + ".depth.jpg")).string(),
                                     comp_depth);
                     }
                 }

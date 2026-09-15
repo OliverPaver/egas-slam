@@ -45,6 +45,10 @@ public:
 
     void renderEvalImgs(RawGaussianModel &model, const std::vector<Camera> &cams, std::vector<std::string> eval_names);
 
+    void writeEvalImage(const std::string &filename, const cv::Mat &image) const;
+
+    cv::Mat evalRgbImage(const torch::Tensor &rgb) const;
+
     void logStartTime()
     {
         cudaDeviceSynchronize();
@@ -79,6 +83,9 @@ public:
     int eval_stride = 1;
     int eval_max_frames = 0;
     int eval_start_offset = 0;
+    std::vector<int> eval_frame_indices;
+    std::string eval_image_extension = ".jpg";
+    bool eval_write_auxiliary_images = true;
     struct timespec start_time, end_time;
 
     YAML::Node config;

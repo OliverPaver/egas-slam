@@ -6,6 +6,12 @@ BUILD_DIR="${GPS_SLAM_THOR_BUILD_DIR:-${PROJECT_ROOT}/build_thor}"
 BUILD_JOBS="${GPS_SLAM_BUILD_JOBS:-$(nproc)}"
 HASH_PROFILE="${GPS_SLAM_TSDF_HASH_PROFILE:-medium_128k}"
 BUILD_REMOTE_VIEWER="${GPS_SLAM_BUILD_REMOTE_VIEWER:-0}"
+BASIC_INSTRUMENTATION="${GPS_SLAM_BASIC_CAPACITY_INSTRUMENTATION:-OFF}"
+
+case "${BASIC_INSTRUMENTATION}" in
+    ON|OFF) ;;
+    *) echo "GPS_SLAM_BASIC_CAPACITY_INSTRUMENTATION must be ON or OFF" >&2; exit 1 ;;
+esac
 
 for command_name in cmake python3; do
     if ! command -v "${command_name}" >/dev/null 2>&1; then
@@ -41,7 +47,7 @@ if ! "${NVCC}" --list-gpu-arch 2>/dev/null | grep -q '^compute_110$'; then
 fi
 
 case "${HASH_PROFILE}" in
-    legacy_large|medium_128k|compact_64k) ;;
+    legacy_large|medium_128k|compact_64k|legacy_pool_512k|legacy_pool_1m|legacy_256k_hash4m|legacy_pool_2m|legacy_256k_hash8m) ;;
     *)
         echo "Unsupported GPS_SLAM_TSDF_HASH_PROFILE=${HASH_PROFILE}" >&2
         exit 1
@@ -90,18 +96,23 @@ fi
 
 if ! TORCH_REPORT=$(python3 - <<'PY' 2>&1
 import sys
+import os
 import torch
 
-if not torch.cuda.is_available():
-    raise SystemExit("Torch cannot access CUDA")
-capability = torch.cuda.get_device_capability(0)
-if capability != (11, 0):
-    raise SystemExit(f"Expected Thor capability (11, 0), got {capability}")
+capability = "not checked (build-only mode)"
+device = "not initialized"
+if os.environ.get("GPS_SLAM_BUILD_SKIP_GPU_CHECK", "0") != "1":
+    if not torch.cuda.is_available():
+        raise SystemExit("Torch cannot access CUDA")
+    capability = torch.cuda.get_device_capability(0)
+    if capability != (11, 0):
+        raise SystemExit(f"Expected Thor capability (11, 0), got {capability}")
+    device = torch.cuda.get_device_name(0)
 abi_fn = getattr(torch, "compiled_with_cxx11_abi", None)
 abi = abi_fn() if abi_fn is not None else getattr(torch._C, "_GLIBCXX_USE_CXX11_ABI", "unknown")
 print(
     f"torch={torch.__version__} torch_cuda={torch.version.cuda} "
-    f"device={torch.cuda.get_device_name(0)} capability={capability} cxx11_abi={abi}"
+    f"device={device} capability={capability} cxx11_abi={abi}"
 )
 PY
 ); then
@@ -169,17 +180,25 @@ cmake -S "${PROJECT_ROOT}" -B "${BUILD_DIR}" -G "${CMAKE_GENERATOR}" \
     -DGPS_SLAM_BUILD_REMOTE_VIEWER="$([[ "${BUILD_REMOTE_VIEWER}" == "1" ]] && echo ON || echo OFF)" \
     -DGPS_SLAM_ENABLE_TENSORBOARD=OFF \
     -DGPS_SLAM_CUDA_FAST_MATH=OFF \
+    -DGPS_SLAM_BASIC_CAPACITY_INSTRUMENTATION="${BASIC_INSTRUMENTATION}" \
     -DGPS_SLAM_TSDF_HASH_PROFILE="${HASH_PROFILE}" \
-    -DCMAKE_PREFIX_PATH="${TORCH_PREFIX};${PROJECT_ROOT}/ThirdLibs/install"
+    -DCMAKE_PREFIX_PATH="${TORCH_PREFIX};${PROJECT_ROOT}/ThirdLibs/install" \
+    -DGPS_SLAM_RASTERIZER_ARCHIVE="${GPS_SLAM_RASTERIZER_ARCHIVE:-}" \
+    -DGPS_SLAM_RASTERIZER_ARCHIVE_SHA256="${GPS_SLAM_RASTERIZER_ARCHIVE_SHA256:-}" \
+    -DGPS_SLAM_RASTERIZER_ARCHIVE_MANIFEST="${GPS_SLAM_RASTERIZER_ARCHIVE_MANIFEST:-}"
 
 BUILD_TARGETS=(slam_trainer)
 if [[ "${BUILD_REMOTE_VIEWER}" == "1" ]]; then
     BUILD_TARGETS+=(remote_viewer)
 fi
 cmake --build "${BUILD_DIR}" --target "${BUILD_TARGETS[@]}" --parallel "${BUILD_JOBS}"
+POST_BUILD_ARGS=()
+if [[ "${GPS_SLAM_BUILD_SKIP_GPU_CHECK:-0}" == "1" ]]; then
+    POST_BUILD_ARGS+=(--skip-cuda-runtime)
+fi
 python3 "${PROJECT_ROOT}/scripts/thor_post_build_check.py" \
     --build-dir "${BUILD_DIR}" \
-    --hash-profile "${HASH_PROFILE}"
+    --hash-profile "${HASH_PROFILE}" "${POST_BUILD_ARGS[@]}"
 
 echo "[thor] build complete"
 echo "[thor] trainer: ${BUILD_DIR}/slam_trainer"

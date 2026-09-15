@@ -2,7 +2,7 @@
   "title": "Robust Submap-Based Gaussian-plus-SDF SLAM with Loop Closure on NVIDIA Jetson AGX Thor",
   "upload_type": "software",
   "description": "A research fork of GPS-SLAM adding bounded Gaussian/SDF submaps, loop closure, tracking containment, benchmark hardening, and native NVIDIA Jetson AGX Thor deployment.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "creators": [
     {
       "name": "Paver, Oliver",

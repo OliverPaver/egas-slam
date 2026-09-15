@@ -11,6 +11,10 @@ struct AllocationTempData
 	int noAllocatedVoxelEntries;
 	int noAllocatedExcessEntries;
 	int noVisibleEntries;
+#ifndef GPS_SLAM_DISABLE_BASIC_CAPACITY_INSTRUMENTATION
+    int failedVoxelAllocations;
+    int failedExcessAllocations;
+#endif
 };
 
 using namespace ITMLib;
@@ -90,6 +94,11 @@ void ITMSceneReconstructionEngine_CUDA<TVoxel, ITMVoxelBlockHash>::ResetScene(IT
 	fillArrayKernel<int>(excessList_ptr, SDF_EXCESS_LIST_SIZE);
 
 	scene->index.SetLastFreeExcessListId(SDF_EXCESS_LIST_SIZE - 1);
+#ifndef GPS_SLAM_DISABLE_BASIC_CAPACITY_INSTRUMENTATION
+    scene->lastFailedVoxelAllocations = 0;
+    scene->lastFailedExcessAllocations = 0;
+    scene->allocationFailureCountersAvailable = true;
+#endif
 }
 
 template <class TVoxel>
@@ -148,6 +157,10 @@ void ITMSceneReconstructionEngine_CUDA<TVoxel, ITMVoxelBlockHash>::AllocateScene
 	tempData->noAllocatedVoxelEntries = scene->localVBA.lastFreeBlockId;
 	tempData->noAllocatedExcessEntries = scene->index.GetLastFreeExcessListId();
 	tempData->noVisibleEntries = 0;
+#ifndef GPS_SLAM_DISABLE_BASIC_CAPACITY_INSTRUMENTATION
+    tempData->failedVoxelAllocations = 0;
+    tempData->failedExcessAllocations = 0;
+#endif
 	ORcudaSafeCall(cudaMemcpyAsync(allocationTempData_device, tempData, sizeof(AllocationTempData), cudaMemcpyHostToDevice));
 
 	ORcudaSafeCall(cudaMemsetAsync(entriesAllocType_device, 0, sizeof(unsigned char) * noTotalEntries));
@@ -200,6 +213,11 @@ void ITMSceneReconstructionEngine_CUDA<TVoxel, ITMVoxelBlockHash>::AllocateScene
 		renderState_vh->noVisibleEntries = SDF_LOCAL_BLOCK_NUM;
 	scene->localVBA.lastFreeBlockId = tempData->noAllocatedVoxelEntries;
 	scene->index.SetLastFreeExcessListId(tempData->noAllocatedExcessEntries);
+#ifndef GPS_SLAM_DISABLE_BASIC_CAPACITY_INSTRUMENTATION
+    scene->lastFailedVoxelAllocations = tempData->failedVoxelAllocations;
+    scene->lastFailedExcessAllocations = tempData->failedExcessAllocations;
+    scene->allocationFailureCountersAvailable = true;
+#endif
 }
 
 template <class TVoxel>
@@ -435,6 +453,9 @@ namespace
 			else
 			{
 				// Mark entry as not visible since we couldn't allocate it but buildHashAllocAndVisibleTypePP changed its state.
+#ifndef GPS_SLAM_DISABLE_BASIC_CAPACITY_INSTRUMENTATION
+                atomicAdd(&allocData->failedVoxelAllocations, 1);
+#endif
 				entriesVisibleType[targetIdx] = 0;
 
 				// Restore the previous value to avoid leaks.
@@ -468,6 +489,10 @@ namespace
 			else
 			{
 				// No need to mark the entry as not visible since buildHashAllocAndVisibleTypePP did not mark it.
+#ifndef GPS_SLAM_DISABLE_BASIC_CAPACITY_INSTRUMENTATION
+                if (vbaIdx < 0) atomicAdd(&allocData->failedVoxelAllocations, 1);
+                if (exlIdx < 0) atomicAdd(&allocData->failedExcessAllocations, 1);
+#endif
 				// Restore the previous values to avoid leaks.
 				atomicAdd(&allocData->noAllocatedVoxelEntries, 1);
 				atomicAdd(&allocData->noAllocatedExcessEntries, 1);
@@ -493,7 +518,12 @@ namespace
 			if (vbaIdx >= 0)
 				hashTable[targetIdx].ptr = voxelAllocationList[vbaIdx];
 			else
+            {
+#ifndef GPS_SLAM_DISABLE_BASIC_CAPACITY_INSTRUMENTATION
+                atomicAdd(&allocData->failedVoxelAllocations, 1);
+#endif
 				atomicAdd(&allocData->noAllocatedVoxelEntries, 1);
+            }
 		}
 	}
 

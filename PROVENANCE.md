@@ -1,25 +1,11 @@
-# Provenance
+# Source provenance
 
-## Upstream lineage
+This is Oliver Paver's final GPS-SLAM research implementation for NVIDIA Jetson AGX Thor, developed at The University of Manchester under the supervision of Prof. Mikel Luján. It derives from [MisEty/GPS-SLAM](https://github.com/MisEty/GPS-SLAM), preserving upstream Git history and component attribution. The imported upstream release tip is `057ad6a122f5ef7f8d0269125741cf4d39b86ffc`.
 
-This repository preserves the Git history of [MisEty/GPS-SLAM](https://github.com/MisEty/GPS-SLAM). The imported upstream `release` tip is commit `057ad6a122f5ef7f8d0269125741cf4d39b86ffc`; the `upstream` remote points to that repository.
+The final source combines the GPS-SLAM native implementation frozen for `thor_repair_v3_20260910` with the separately accepted `saved_overlap_v2` evaluation correction. The correction restores recorded overlap membership during saved-map evaluation; it does not replace the training path. The original native and evaluation programs were built separately. This unified software release is not the exact binary used for both historical stages.
 
-Oliver Paver developed the submap, loop-closure, robustness, benchmark-hardening, and Jetson AGX Thor changes as part of postgraduate research in the Department of Computer Science at The University of Manchester, supervised by Prof. Mikel Luján.
+Assembly preserves scientific source while adapting wrappers, explicit build presets, configuration paths, release checks and documentation. Numeric settings in `configs/final/` correspond to final training/evaluation templates; only locations and campaign-only labels are adapted. [SOURCE_PROVENANCE.json](SOURCE_PROVENANCE.json) records exact source/configuration/overlay digests. [SOURCE_MANIFEST.json](SOURCE_MANIFEST.json) binds the entire shipped tree, except its own self entry.
 
-## Snapshot chain
+Earlier R2 tags and commits remain intact as history. They are not the identity of the current tree. Benchmark outputs, exploratory sweeps, thesis documents, maps, datasets, weights and builds are excluded.
 
-1. The transferred R2 implementation was frozen as `thor-paper-20260819-r2` and recorded in `BENCHMARK_FREEZE.json`.
-2. Every allowlisted functional source/configuration file was checked against that manifest before import. There were 3,911 matching files and no missing or modified entries after excluding generated `ThirdLibs/install` products.
-3. The exact source import was committed once and annotated as `thor-paper-20260819-r2-source`.
-4. Release hardening was performed only in the separate staging repository. The locked working copy and its 38 MB private archival bundle were not modified.
-
-The original archival bundle remains private because it contains generated binaries and did not include all third-party licence material. The public source release instead vendors the pinned source dependencies listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
-
-## Evidence and traceability
-
-- `BENCHMARK_FREEZE.json` identifies the historical R2 source, binaries, build profiles, container, and dataset protocol.
-- [BENCHMARK_PROTOCOL.md](BENCHMARK_PROTOCOL.md) states metric, timing, completeness, and failure-handling rules.
-- [PAPER_READINESS_LOCK_2026-08-25.md](PAPER_READINESS_LOCK_2026-08-25.md) records the final 61-run matrix and soak decision.
-- [RELEASE_EQUIVALENCE.md](RELEASE_EQUIVALENCE.md) defines and verifies the unchanged algorithm boundary.
-
-The compact paper artifact is built separately from the raw run store. Its manifest maps each retained file to a SHA-256 digest; datasets, checkpoints, full image sequences, models, meshes, and caches are excluded.
+Bundled components retain their copyright and licence material; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), `LICENSES/` and [RELEASE_EQUIVALENCE.md](RELEASE_EQUIVALENCE.md). The combined distribution is subject to those restrictions. This private source upload does not change repository visibility or resolve separate public-distribution permissions.

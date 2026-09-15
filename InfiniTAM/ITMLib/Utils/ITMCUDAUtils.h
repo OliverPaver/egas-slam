@@ -2,75 +2,99 @@
 
 #pragma once
 
+#include <cooperative_groups.h>
+
+// All callers enter with the complete first warp (local ids 0..31).
+// At each stage only the lower lanes write; their source lanes do not write
+// during that stage. Barriers separate stages under independent scheduling.
+// Lane zero retains the original +32,+16,+8,+4,+2,+1 addition tree.
 template<class T>
-inline __device__ void warpReduce(volatile T* sdata, int tid) {
-	sdata[tid] += sdata[tid + 32];
-	sdata[tid] += sdata[tid + 16];
-	sdata[tid] += sdata[tid + 8];
-	sdata[tid] += sdata[tid + 4];
-	sdata[tid] += sdata[tid + 2];
-	sdata[tid] += sdata[tid + 1];
+inline __device__ void warpReduce(volatile T* sdata, int tid)
+{
+    if (tid < 32) sdata[tid] += sdata[tid + 32];
+    __syncwarp(0xffffffffu);
+    if (tid < 16) sdata[tid] += sdata[tid + 16];
+    __syncwarp(0xffffffffu);
+    if (tid < 8) sdata[tid] += sdata[tid + 8];
+    __syncwarp(0xffffffffu);
+    if (tid < 4) sdata[tid] += sdata[tid + 4];
+    __syncwarp(0xffffffffu);
+    if (tid < 2) sdata[tid] += sdata[tid + 2];
+    __syncwarp(0xffffffffu);
+    if (tid < 1) sdata[tid] += sdata[tid + 1];
+    __syncwarp(0xffffffffu);
 }
 
-inline __device__ void warpReduce3(volatile float* sdata, int tid) {
-	sdata[3*tid+0] += sdata[3*(tid + 32)+0];
-	sdata[3*tid+1] += sdata[3*(tid + 32)+1];
-	sdata[3*tid+2] += sdata[3*(tid + 32)+2];
-	sdata[3*tid+0] += sdata[3*(tid + 16)+0];
-	sdata[3*tid+1] += sdata[3*(tid + 16)+1];
-	sdata[3*tid+2] += sdata[3*(tid + 16)+2];
-	sdata[3*tid+0] += sdata[3*(tid + 8)+0];
-	sdata[3*tid+1] += sdata[3*(tid + 8)+1];
-	sdata[3*tid+2] += sdata[3*(tid + 8)+2];
-	sdata[3*tid+0] += sdata[3*(tid + 4)+0];
-	sdata[3*tid+1] += sdata[3*(tid + 4)+1];
-	sdata[3*tid+2] += sdata[3*(tid + 4)+2];
-	sdata[3*tid+0] += sdata[3*(tid + 2)+0];
-	sdata[3*tid+1] += sdata[3*(tid + 2)+1];
-	sdata[3*tid+2] += sdata[3*(tid + 2)+2];
-	sdata[3*tid+0] += sdata[3*(tid + 1)+0];
-	sdata[3*tid+1] += sdata[3*(tid + 1)+1];
-	sdata[3*tid+2] += sdata[3*(tid + 1)+2];
+inline __device__ void warpReduce3(volatile float* sdata, int tid)
+{
+    if (tid < 32)
+    {
+        sdata[3 * tid + 0] += sdata[3 * (tid + 32) + 0];
+        sdata[3 * tid + 1] += sdata[3 * (tid + 32) + 1];
+        sdata[3 * tid + 2] += sdata[3 * (tid + 32) + 2];
+    }
+    __syncwarp(0xffffffffu);
+    if (tid < 16)
+    {
+        sdata[3 * tid + 0] += sdata[3 * (tid + 16) + 0];
+        sdata[3 * tid + 1] += sdata[3 * (tid + 16) + 1];
+        sdata[3 * tid + 2] += sdata[3 * (tid + 16) + 2];
+    }
+    __syncwarp(0xffffffffu);
+    if (tid < 8)
+    {
+        sdata[3 * tid + 0] += sdata[3 * (tid + 8) + 0];
+        sdata[3 * tid + 1] += sdata[3 * (tid + 8) + 1];
+        sdata[3 * tid + 2] += sdata[3 * (tid + 8) + 2];
+    }
+    __syncwarp(0xffffffffu);
+    if (tid < 4)
+    {
+        sdata[3 * tid + 0] += sdata[3 * (tid + 4) + 0];
+        sdata[3 * tid + 1] += sdata[3 * (tid + 4) + 1];
+        sdata[3 * tid + 2] += sdata[3 * (tid + 4) + 2];
+    }
+    __syncwarp(0xffffffffu);
+    if (tid < 2)
+    {
+        sdata[3 * tid + 0] += sdata[3 * (tid + 2) + 0];
+        sdata[3 * tid + 1] += sdata[3 * (tid + 2) + 1];
+        sdata[3 * tid + 2] += sdata[3 * (tid + 2) + 2];
+    }
+    __syncwarp(0xffffffffu);
+    if (tid < 1)
+    {
+        sdata[3 * tid + 0] += sdata[3 * (tid + 1) + 0];
+        sdata[3 * tid + 1] += sdata[3 * (tid + 1) + 1];
+        sdata[3 * tid + 2] += sdata[3 * (tid + 1) + 2];
+    }
+    __syncwarp(0xffffffffu);
 }
 
-template <typename T> 
+template <typename T>
 __device__ int computePrefixSum_device(uint element, T *sum, int localSize, int localId)
 {
-	// TODO: should be localSize...
-	__shared__ uint prefixBuffer[16 * 16];
-	__shared__ uint groupOffset;
-
-	prefixBuffer[localId] = element;
-	__syncthreads();
-
-	int s1, s2;
-
-	for (s1 = 1, s2 = 1; s1 < localSize; s1 <<= 1)
-	{
-		s2 |= s1;
-		if ((localId & s2) == s2) prefixBuffer[localId] += prefixBuffer[localId - s1];
-		__syncthreads();
-	}
-
-	for (s1 >>= 2, s2 >>= 1; s1 >= 1; s1 >>= 1, s2 >>= 1)
-	{
-		if (localId != localSize - 1 && (localId & s2) == s2) prefixBuffer[localId + s1] += prefixBuffer[localId];
-		__syncthreads();
-	}
-
-	if (localId == 0 && prefixBuffer[localSize - 1] > 0) groupOffset = atomicAdd(sum, prefixBuffer[localSize - 1]);
-	__syncthreads();
-
-	int offset;// = groupOffset + prefixBuffer[localId] - 1;
-	if (localId == 0) {
-		if (prefixBuffer[localId] == 0) offset = -1;
-		else offset = groupOffset;
-	} else {
-		if (prefixBuffer[localId] == prefixBuffer[localId - 1]) offset = -1;
-		else offset = groupOffset + prefixBuffer[localId-1];
-	}
-
-	return offset;
+    // Several callers return out-of-range threads before entering this scan.
+    // A block-wide scan then reads unwritten shared slots in partial blocks.
+    // Compact the currently participating lanes and reserve one contiguous
+    // range per group; global ordering was already unspecified across blocks.
+    (void)localSize;
+    (void)localId;
+    const auto group = cooperative_groups::coalesced_threads();
+    const unsigned int rank = group.thread_rank();
+    unsigned int inclusive = element;
+    for (unsigned int offset = 1; offset < group.size(); offset <<= 1)
+    {
+        const unsigned int preceding = group.shfl_up(inclusive, offset);
+        if (rank >= offset)
+            inclusive += preceding;
+    }
+    const unsigned int total = group.shfl(inclusive, group.size() - 1);
+    T base = 0;
+    if (rank == 0 && total > 0)
+        base = atomicAdd(sum, static_cast<T>(total));
+    base = group.shfl(base, 0);
+    return element == 0 ? -1 : static_cast<int>(base + inclusive - element);
 }
 
 __device__ static inline void atomicMin(float* address, float val)

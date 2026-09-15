@@ -6,6 +6,7 @@
 #include "tensor_math.h"
 #include <cmath>
 #include <set>
+#include <map>
 
 namespace fs = std::filesystem;
 using namespace torch::indexing;
@@ -282,11 +283,17 @@ DatasetReader::DatasetReader(const YAML::Node &config)
     if (!std::isfinite(downscale_factor) || downscale_factor < 1.0f)
         throw std::runtime_error("READER.downscale_factor must be finite and at least 1.0");
     scene_scale = 1.1f * config["scene_scale"].as<float>();
+    if (!std::isfinite(scene_scale) || scene_scale <= 0.0f)
+        throw std::runtime_error("READER.scene_scale must be finite and positive");
+    const std::string pose_source = config["pose_source"]
+        ? config["pose_source"].as<std::string>() : "ground_truth";
+    if (pose_source != "ground_truth" && pose_source != "identity")
+        throw std::runtime_error("READER.pose_source must be ground_truth or identity");
     scene_centor = torch::zeros(3);
     fs::path dataRoot(input_dir);
     // load init points
     fs::path pointsPath = dataRoot / pcd_name;
-    if (fs::exists(pointsPath))
+    if (pose_source == "ground_truth" && fs::exists(pointsPath))
     {
         // 在初始点云文件存在的时候，读取初始点云
         std::cout << "read init scene point cloud." << std::endl;
@@ -381,14 +388,21 @@ void DatasetReader::read()
         std::string pose_filename = (posePath / (pose_prefix + filename + pose_extension)).string();
         std::string img_filename = (imagePath / (image_prefix + filename + image_extension)).string();
         std::string depth_filename = (depthPath / (depth_prefix + filename + depth_extension)).string();
-        if (!fs::exists(pose_filename))
-            throw std::runtime_error(pose_filename + " does not exist");
         if (!fs::exists(img_filename))
             throw std::runtime_error(img_filename + " does not exist");
         if (has_depth && !fs::exists(depth_filename))
             throw std::runtime_error(depth_filename + " does not exist");
-        Matrix4 c2w_mat = readMatrixFromTXT(pose_filename);
-        torch::Tensor c2w_tensor = matrixToTensor(c2w_mat);
+        torch::Tensor c2w_tensor = torch::eye(4, torch::kFloat32);
+        const bool ground_truth = !config["pose_source"] ||
+            config["pose_source"].as<std::string>() == "ground_truth";
+        if (ground_truth)
+        {
+            const MatrixX loaded = readMatrixFromTXT(pose_filename);
+            if (loaded.rows() != 4 || loaded.cols() != 4 || !loaded.allFinite())
+                throw std::runtime_error("Invalid 4x4 camera pose: " + pose_filename);
+            const Matrix4 c2w_mat = loaded;
+            c2w_tensor = matrixToTensor(c2w_mat);
+        }
         torch::Tensor ref_c2w_pose;
         if (read_count == 0)
         {
@@ -440,6 +454,11 @@ void DatasetReader::read()
 
 void DatasetReader::updateSceneGeo()
 {
+    if (config["pose_source"] && config["pose_source"].as<std::string>() == "identity")
+    {
+        std::cout << "[POSE SOURCE] estimated; configured scene scale: " << scene_scale << std::endl;
+        return;
+    }
     const auto all_cams = getAllCams();
     if (all_cams.size() <= 1)
     {
@@ -491,23 +510,28 @@ bool DatasetReader::loadSlamPose(const std::string &pose_dir)
     if (!fs::exists(pose_dir))
         return false;
 
-    std::set<std::string> loaded_files;
-    auto load_pose_for_cam = [&](Camera &cam) {
-        fs::path pose_path = fs::path(pose_dir) / ("frame" + cam.getFrameID() + ".txt");
-        if (!fs::exists(pose_path))
-            return;
-        Matrix4 c2w_mat = readMatrixFromTXT(pose_path.string());
-        cam.c2w_slam = matrixToTensor(c2w_mat);
-        loaded_files.insert(pose_path.string());
-    };
-
+    if (!fs::is_directory(pose_dir))
+        throw std::runtime_error("Saved SLAM trajectory is not a directory: " + pose_dir);
+    std::map<std::string, torch::Tensor> loaded;
+    for (const auto &cam : getAllCams())
+    {
+        const std::string id = cam.getFrameID();
+        const fs::path path = fs::path(pose_dir) / ("frame" + id + ".txt");
+        if (!fs::is_regular_file(path))
+            throw std::runtime_error("Incomplete saved SLAM trajectory: missing " + path.string());
+        const MatrixX matrix = readMatrixFromTXT(path.string());
+        if (matrix.rows() != 4 || matrix.cols() != 4 || !matrix.allFinite())
+            throw std::runtime_error("Invalid saved 4x4 SLAM pose: " + path.string());
+        const Matrix4 pose = matrix;
+        loaded.emplace(id, matrixToTensor(pose));
+    }
+    // Commit only after every required pose has been validated.
     for (auto &cam : train_vec)
-        load_pose_for_cam(cam);
+        cam.c2w_slam = loaded.at(cam.getFrameID()).clone();
     for (auto &cam : val_vec)
-        load_pose_for_cam(cam);
-
-    std::cout << "Loaded " << loaded_files.size() << " saved SLAM poses from: " << pose_dir << std::endl;
-    return !loaded_files.empty();
+        cam.c2w_slam = loaded.at(cam.getFrameID()).clone();
+    std::cout << "Loaded " << loaded.size() << " saved SLAM poses from: " << pose_dir << std::endl;
+    return !loaded.empty();
 }
 
 void saveCameras(const std::vector<Camera> &input_cameras, const std::string &filename)
@@ -547,8 +571,12 @@ void saveCameras(const std::vector<Camera> &input_cameras, const std::string &fi
     }
 
     std::ofstream of(filename);
+    if (!of)
+        throw std::runtime_error("Could not write cameras: " + filename);
     of << j;
     of.close();
+    if (!of)
+        throw std::runtime_error("Failed while writing cameras: " + filename);
 
     std::cout << "Wrote camera json to: " << filename << std::endl;
 }

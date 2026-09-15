@@ -7,6 +7,7 @@ import argparse
 import csv
 import glob
 import json
+import math
 import os
 import re
 import signal
@@ -68,24 +69,43 @@ def clock_state() -> dict[str, object]:
                 "current_hz": read_text(cpu_root / "scaling_cur_freq"),
                 "min_hz": read_text(cpu_root / "scaling_min_freq"),
                 "max_hz": read_text(cpu_root / "scaling_max_freq"),
+                "platform_max_hz": read_text(cpu_root / "cpuinfo_max_freq"),
             }
         )
-    for gpu_root in sorted(Path("/sys/class/devfreq").glob("gpu-*")):
+    devfreq_root = Path("/sys/class/devfreq")
+    for gpu_root in [*sorted(devfreq_root.glob("gpu-*")), devfreq_root / "bwmgr"]:
         groups.append(
             {
                 "name": gpu_root.name,
-                "kind": "gpu",
+                "kind": "emc" if gpu_root.name == "bwmgr" else "gpu",
                 "governor": read_text(gpu_root / "governor"),
                 "current_hz": read_text(gpu_root / "cur_freq"),
                 "min_hz": read_text(gpu_root / "min_freq"),
                 "max_hz": read_text(gpu_root / "max_freq"),
+                "platform_max_hz": str(max((int(value) for value in
+                    read_text(gpu_root / "available_frequencies").split() if value.isdigit()), default=0)),
             }
         )
+    return validate_clock_groups(groups)
+
+
+def validate_clock_groups(groups: list[dict[str, str]]) -> dict[str, object]:
     constrained = [group for group in groups if group["min_hz"] and group["max_hz"]]
+    complete = (len([group for group in constrained if group["kind"] == "cpu"]) == 14
+                and any(group["name"].startswith("gpu-gpc-") for group in constrained)
+                and any(group["name"].startswith("gpu-nvd-") for group in constrained)
+                and any(group["kind"] == "emc" for group in constrained)
+                and len(constrained) == len(groups))
     return {
         "groups": groups,
-        "all_reported_clocks_locked": bool(constrained)
-        and all(group["min_hz"] == group["max_hz"] for group in constrained),
+        "cpu_frequency_unit": "kHz",
+        "gpu_frequency_unit": "Hz",
+        "emc_frequency_unit": "Hz",
+        "thor_clock_inventory_complete": complete,
+        "all_reported_clocks_locked": complete
+        and all(group["min_hz"].isdigit() and int(group["min_hz"]) > 0
+                and group["min_hz"] == group["max_hz"] == group["platform_max_hz"]
+                for group in constrained),
     }
 
 
@@ -213,6 +233,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--interval-ms", type=int, default=500)
+    parser.add_argument("--timeout-seconds", type=float, default=0,
+                        help="stop a stalled child after this wall time; zero disables the watchdog")
+    parser.add_argument("--container-name", help="owned container to remove if the child is interrupted or times out")
     parser.add_argument(
         "--require-clean",
         action="store_true",
@@ -227,6 +250,10 @@ def main() -> int:
         parser.error("a command is required after --")
     if args.interval_ms < 100:
         parser.error("--interval-ms must be at least 100")
+    if args.timeout_seconds < 0 or not math.isfinite(args.timeout_seconds):
+        parser.error("--timeout-seconds must be finite and nonnegative")
+    if args.container_name and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", args.container_name):
+        parser.error("invalid container name")
 
     output_dir = args.output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -256,12 +283,40 @@ def main() -> int:
     collector = threading.Thread(target=collect, daemon=True)
     collector.start()
     command_start_utc = utc_now()
+    timed_out = False
+    interrupted = False
+    child = None
+
+    def stop_child() -> None:
+        if child is None or child.poll() is not None:
+            return
+        if args.container_name:
+            subprocess.run(["docker", "rm", "-f", args.container_name],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
+        if child.poll() is None:
+            try:
+                os.killpg(child.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+        try:
+            child.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            os.killpg(child.pid, signal.SIGKILL)
+            child.wait(timeout=10)
+
     try:
-        child = subprocess.Popen(command)
-        child_returncode = child.wait()
+        child = subprocess.Popen(command, start_new_session=True)
+        child_returncode = child.wait(timeout=args.timeout_seconds or None)
+    except subprocess.TimeoutExpired:
+        timed_out = True
+        stop_child()
+        child_returncode = 124
+    except KeyboardInterrupt:
+        interrupted = True
+        stop_child()
+        child_returncode = 130
     except BaseException:
-        if "child" in locals() and child.poll() is None:
-            child.send_signal(signal.SIGTERM)
+        stop_child()
         raise
     finally:
         if tegrastats.poll() is None:
@@ -286,11 +341,16 @@ def main() -> int:
     fan_after = after["fan"]
     fan_pwm_values = [
         int(value)
-        for path, value in {**fan_before, **fan_after}.items()  # type: ignore[union-attr]
+        for state in (fan_before, fan_after)
+        for path, value in state.items()
         if path.endswith("/pwm1") and str(value).isdigit()
     ]
-    fan_max_ok = bool(fan_pwm_values) and min(fan_pwm_values) >= 255
-    throttle_clean = bool(deltas) and all(value == 0 for value in deltas.values())
+    fan_max_ok = all(any(path.endswith("/pwm1") and str(value).isdigit()
+                        for path, value in state.items()) for state in (fan_before, fan_after)) \
+        and bool(fan_pwm_values) and min(fan_pwm_values) >= 255
+    throttle_clean = (bool(deltas)
+                      and before["over_current_event_counters"].keys() == after["over_current_event_counters"].keys()
+                      and all(value == 0 for value in deltas.values()))
     thermal_state_values: list[int] = []
     for state in (before["thermal_cooling_state"], after["thermal_cooling_state"]):
         thermal_state_values.extend(
@@ -309,14 +369,15 @@ def main() -> int:
     thermal_clean = bool(thermal_state_values) and all(
         value == 0 for value in thermal_state_values + thermal_sample_values
     )
-    valid = (
+    environment_valid = (
         nvpmodel_ok
         and clocks_ok
         and fan_max_ok
         and throttle_clean
         and thermal_clean
-        and child_returncode == 0
+        and bool(samples)
     )
+    valid = environment_valid and child_returncode == 0
     summary = {
         "schema_version": 1,
         "command": command,
@@ -324,6 +385,9 @@ def main() -> int:
         "command_end_utc": utc_now(),
         "command_elapsed_ms": (time.monotonic() - start) * 1000.0,
         "command_returncode": child_returncode,
+        "watchdog_timeout_seconds": args.timeout_seconds,
+        "watchdog_timed_out": timed_out,
+        "interrupted": interrupted,
         "before": before,
         "after": after,
         "over_current_event_counter_deltas": deltas,
@@ -333,6 +397,7 @@ def main() -> int:
         "throttle_counters_unchanged": throttle_clean,
         "thermal_throttle_clean": thermal_clean,
         "run_valid_for_headline": valid,
+        "environment_valid": environment_valid,
         "tegrastats": aggregate_samples(samples),
     }
     write_samples(output_dir / "tegrastats.csv", samples)

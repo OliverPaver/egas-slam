@@ -37,6 +37,8 @@ def main() -> int:
     parser.add_argument("--build-dir", type=Path, default=Path("build_thor"))
     parser.add_argument("--hash-profile", default="medium_128k")
     parser.add_argument("--json", action="store_true")
+    parser.add_argument("--skip-cuda-runtime", action="store_true",
+                        help="Verify build artifacts only; do not initialize CUDA or claim runtime readiness")
     args = parser.parse_args()
 
     build_dir = args.build_dir.resolve()
@@ -94,24 +96,26 @@ def main() -> int:
     else:
         check("compile commands", False, f"missing {commands_path}")
 
-    try:
-        import torch
+    if not args.skip_cuda_runtime:
+        try:
+            import torch
 
-        cuda_ok = bool(torch.cuda.is_available())
-        capability = torch.cuda.get_device_capability(0) if cuda_ok else None
-        check(
-            "Torch CUDA runtime",
-            cuda_ok and capability == (11, 0),
-            f"torch={torch.__version__}, CUDA={torch.version.cuda}, capability={capability}",
-        )
-    except Exception as exc:
-        check("Torch CUDA runtime", False, repr(exc))
+            cuda_ok = bool(torch.cuda.is_available())
+            capability = torch.cuda.get_device_capability(0) if cuda_ok else None
+            check(
+                "Torch CUDA runtime",
+                cuda_ok and capability == (11, 0),
+                f"torch={torch.__version__}, CUDA={torch.version.cuda}, capability={capability}",
+            )
+        except Exception as exc:
+            check("Torch CUDA runtime", False, repr(exc))
 
     report = {
         "build_dir": str(build_dir),
         "binary": str(binary),
         "ok": all(bool(item["ok"]) for item in checks),
         "checks": checks,
+        "cuda_runtime_checked": not args.skip_cuda_runtime,
     }
     if args.json:
         print(json.dumps(report, indent=2, sort_keys=True))
@@ -122,7 +126,8 @@ def main() -> int:
             if "\n" in detail:
                 detail = detail.splitlines()[0] + " ..."
             print(f"[{status}] {item['name']}: {detail}")
-        print("Result:", "READY" if report["ok"] else "BLOCKED")
+        status = "STATIC_CHECKS_PASSED_RUNTIME_UNCHECKED" if args.skip_cuda_runtime else "READY"
+        print("Result:", status if report["ok"] else "BLOCKED")
     return 0 if report["ok"] else 1
 
 

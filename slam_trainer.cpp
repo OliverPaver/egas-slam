@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <filesystem>
+#include <map>
 
 static bool g_bypass_libtorch_atexit = false;
 
@@ -32,7 +33,26 @@ static std::vector<Camera> selectEvalCameras(DatasetReader &data_reader, const P
 
     std::vector<Camera> selected;
     selected.reserve(split_cams.size());
-    for (size_t idx = static_cast<size_t>(pipe.eval_start_offset);
+    if (!pipe.eval_frame_indices.empty())
+    {
+        std::map<int, Camera> by_frame;
+        for (const auto &cam : split_cams)
+        {
+            const std::string id = cam.getFrameID();
+            size_t used = 0;
+            const int index = std::stoi(id, &used);
+            if (used != id.size() || index < 0 || !by_frame.emplace(index, cam).second)
+                throw std::runtime_error("Explicit evaluation sampling requires unique nonnegative integer frame IDs");
+        }
+        for (const int index : pipe.eval_frame_indices)
+        {
+            const auto found = by_frame.find(index);
+            if (found == by_frame.end())
+                throw std::runtime_error("Requested evaluation frame is absent from split: " + std::to_string(index));
+            selected.push_back(found->second);
+        }
+    }
+    else for (size_t idx = static_cast<size_t>(pipe.eval_start_offset);
          idx < split_cams.size();
          idx += static_cast<size_t>(pipe.eval_stride))
     {
@@ -73,6 +93,10 @@ static void writeEvalSamplingManifest(const Pipeline &pipe, const std::vector<Ca
     out << "  \"eval_start_offset\": " << pipe.eval_start_offset << ",\n";
     out << "  \"eval_stride\": " << pipe.eval_stride << ",\n";
     out << "  \"eval_max_frames\": " << pipe.eval_max_frames << ",\n";
+    out << "  \"selection_policy\": \""
+        << (pipe.eval_frame_indices.empty() ? "stride_offset_max" : "explicit_frame_ids") << "\",\n";
+    out << "  \"image_extension\": \"" << pipe.eval_image_extension << "\",\n";
+    out << "  \"rgb_quantisation\": \"clamp_0_1_multiply_255_truncate_uint8\",\n";
     out << "  \"selected_camera_count\": " << eval_cams.size() << ",\n";
     out << "  \"frame_ids\": [";
     for (size_t idx = 0; idx < eval_cams.size(); ++idx)
@@ -101,6 +125,10 @@ int runTrainer(int argc, char *argv[])
     std::string workspace_dir = config["workspace_dir"].as<std::string>();
     std::string work_mode = config["work_mode"].as<std::string>();
     validateTsdfConfig(config["PIPE"]["TSDF"]);
+    const bool use_ground_truth = config["PIPE"]["TSDF"]["use_gt_pose"].as<bool>();
+    // Estimated-pose SLAM must not read future ground-truth poses, including
+    // indirectly through the Gaussian position learning-rate scale.
+    config["READER"]["pose_source"] = use_ground_truth ? "ground_truth" : "identity";
 
     // setup cout precision
     std::cout.setf(std::ios_base::fixed, std::ios_base::floatfield);
@@ -182,14 +210,15 @@ int runTrainer(int argc, char *argv[])
         std::cout << "======= setup eval pipe ======" << std::endl;
         pipe.scene_scale = data_reader.scene_scale;
         pipe.loadConfig(config["PIPE"], workspace_dir, false);
-        if (pipe.isGaussianSubmapsEnabled() &&
-            !data_reader.loadSlamPose(pipe.eval_path + "/corrected_pose") &&
-            !data_reader.loadSlamPose(workspace_dir + "/val/corrected_pose") &&
-            !data_reader.loadSlamPose(pipe.eval_path + "/pose"))
-            data_reader.loadSlamPose(workspace_dir + "/val/pose");
-        else if (!pipe.isGaussianSubmapsEnabled() &&
-                 !data_reader.loadSlamPose(pipe.eval_path + "/pose"))
-            data_reader.loadSlamPose(workspace_dir + "/val/pose");
+        bool loaded_poses = false;
+        if (pipe.isGaussianSubmapsEnabled())
+            loaded_poses = data_reader.loadSlamPose(pipe.eval_path + "/corrected_pose") ||
+                           data_reader.loadSlamPose(workspace_dir + "/val/corrected_pose");
+        if (!loaded_poses)
+            loaded_poses = data_reader.loadSlamPose(pipe.eval_path + "/pose") ||
+                           data_reader.loadSlamPose(workspace_dir + "/val/pose");
+        if (!loaded_poses && !use_ground_truth)
+            throw std::runtime_error("Estimated-pose evaluation requires a complete saved SLAM trajectory");
         pipe.loadEngine();
         std::cout << "======= start eval ======" << std::endl;
         if (pipe.isGaussianSubmapsEnabled())

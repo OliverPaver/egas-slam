@@ -31,6 +31,14 @@ namespace ITMLib
 		/** Global content of the 8x8x8 voxel blocks -- stored on host only */
 		ITMGlobalCache<TVoxel> *globalCache;
 
+        // Per-frame rejected CUDA allocation requests, copied with the existing
+        // allocation-status transfer. These diagnostics are not persisted state.
+#ifndef GPS_SLAM_DISABLE_BASIC_CAPACITY_INSTRUMENTATION
+        int lastFailedVoxelAllocations = 0;
+        int lastFailedExcessAllocations = 0;
+        bool allocationFailureCountersAvailable = false;
+#endif
+
 		void SaveToDirectory(const std::string &outputDirectory) const
 		{
 			localVBA.SaveToDirectory(outputDirectory);

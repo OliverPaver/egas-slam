@@ -66,7 +66,12 @@ container with `bash scripts/thor_container.sh regressions`.
 
 ## Fairness Rules
 
-Replica rendering-quality rows should use GT poses when measuring image quality.
+The final proposed profiles use estimated tracking poses for both Replica and
+TUM. Saved-map evaluation restores the recorded trajectory and overlap
+assignments. A separate GT-pose reconstruction experiment must be explicitly
+labelled; it is not the default tracking benchmark. Image metrics use the same
+reference pairing and normalized VGG-LPIPS inputs in [-1, 1]. See
+[the final reproduction guide](../REPRODUCIBILITY.md) for the supported profiles.
 TUM ATE/RPE rows should use the standard raw/preprocessed associations. Main
 loop-closure numbers must come from online timed runs; offline diagnostics here
 may explain a result but should not be fed back into the reported runtime path.

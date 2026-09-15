@@ -100,7 +100,7 @@ def evaluate(
                     )
                 psnr_value = float(psnr(render_img, gt_img).item())
                 ssim_value = float(ssim(render_img, gt_img).item())
-                lpips_value = float(lpips_module(render_img, gt_img).item())
+                lpips_value = float(lpips_module(2.0 * render_img - 1.0, 2.0 * gt_img - 1.0).item())
                 psnrs.append(psnr_value)
                 ssims.append(ssim_value)
                 lpipss.append(lpips_value)
