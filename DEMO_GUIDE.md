@@ -19,10 +19,18 @@ The default scenes are the two prepared recordings in
 with Ctrl+C. No internet connection is needed; Three.js and its MIT licence are
 included under `viewer/vendor/`.
 
-- **Play / slider:** replay or seek through recorded processing states.
+- **Play / slider:** replay or seek through recorded processing states. Choose
+  **Slow / Normal / Fast** to control replay pacing; these are presentation
+  speeds, not measured SLAM throughput.
 - **Scene selector:** switch between synthetic Replica room0 and real TUM office.
+- **Panel headings / Four-panel overview:** enlarge one panel to inspect its
+  details, then return to the overview.
 - **Drag / scroll over a 3D panel:** rotate and zoom its view. Scene viewpoints
-  are restored at each newly displayed state to keep replay views stable.
+  stay where you place them as replay advances, until **Reset view** restores the
+  prepared viewpoints.
+- **Show before correction / Show corrected placement:** inspect a correction at a fixed camera
+  viewpoint. The selected local contents are shown at their actual before and
+  after placements; comparison replay is explicitly labelled.
 - **Gaussian detail:** show or hide sampled, owner-coloured Gaussian ellipsoids.
 - **Follow live:** follow newly completed capture snapshots from an ongoing run.
   This is periodic observation with capture latency, not a hard real-time GUI.
@@ -42,8 +50,11 @@ The four panels show:
    system; these are not complete standalone Gaussian room reconstructions.
 4. **Loop closure:** actual recorded owner placements. During office correction,
    submap 4 is shown in detail with its previous placement in white. The
-   translation annotation comes from its recorded transform. Other panels
-   retain the wider map context. Orange edges join verified submap graph nodes.
+   verified revisit links submaps **0 and 18**; submap 4 is a separate example of
+   a map moved by the resulting graph correction. The translation annotation
+   measures the change in that submap's coordinate origin, **not a reduction in
+   trajectory error**. Other panels retain the wider map context. Orange edges
+   join verified submap graph nodes.
 
 Room0 has no applied loop correction in this recording. Office supplies the real
 correction example. The scene change is explicit in both videos.
@@ -85,9 +96,12 @@ step reduces display-mesh storage, while native hybrid images remain unchanged.
 Only a deterministic sample of Gaussian ellipsoids is exported (up to 8000 per
 owner); the viewer displays at most about 2500 per owner at their real 2-sigma
 scales. This sampling is for representation inspection, not image-quality
-evaluation. Offline map views retain the last captured surface for a passive
-owner; metadata records its capture frame. Capturing does not page old maps back
-onto the GPU merely to refresh a display asset.
+evaluation. Offline map views retain previously captured surfaces and Gaussian
+samples for passive owners. These assets can predate the final finishing/pruning
+step; their filenames identify the capture frame, and mesh timestamps are also
+recorded in metadata. The footer's Gaussian total comes from the current model
+metadata, not the number of displayed ellipsoids. Capturing does not page old
+maps back onto the GPU merely to refresh a display asset.
 
 ## Export the two videos
 
@@ -97,6 +111,9 @@ onto the GPU merely to refresh a display asset.
 
 # Terminal 2
 ./egas demo-export
+
+# Inspect chapter timings and selected source frames without rendering.
+./egas demo-export --timeline-only
 ```
 
 The exporter requires FFmpeg/FFprobe, system Chrome and Python Playwright. This
@@ -107,14 +124,18 @@ than downloading a second browser. `--help` lists alternate scene, output and
 server paths.
 
 Outputs are written to
-`/home/oliver/egas_workspace/deliverables/EGAS_SLAM_Demo_2026-11-03/`:
+`/home/oliver/egas_workspace/deliverables/EGAS_SLAM_Demo_v2_2026-11-03/`:
 
-- `EGAS_SLAM_Interview.mp4`: 1080p, approximately 70 seconds, captions, no audio.
-- `EGAS_SLAM_GitHub_Preview.mp4`: 1080p, 20 seconds.
+- `EGAS_SLAM_Interview.mp4`: 1080p, **144 seconds**, captions, no audio.
+- `EGAS_SLAM_GitHub_Preview.mp4`: 1080p, **40 seconds**.
 - `EGAS_SLAM_GitHub_Preview.gif`: 960 × 540 animated README preview.
 - `EGAS_SLAM_Poster.png`: 1080p still for a video link or project header.
 - `edit_decisions.json`: exact scene, capture index, display options and hold time.
 - `media_validation.json`: dimensions, durations, decoding checks and file hashes.
+
+The first-version media remain in their original folder. The revised interview
+film gives room growth a full minute, pauses at local-map handoffs, enlarges the
+submap and correction views, and ends with a restrained, eased inspection orbit.
 
 Recorded states are compressed in time and correction steps deliberately held.
 The final orbit moves a virtual inspection camera around the completed SDF
@@ -124,8 +145,12 @@ The video footer states that playback timing is adjusted. No timing or accuracy
 claim from the thesis is transferred to this desktop demonstration.
 
 The exporter caches PNG frames under `rendered_frames/` and keys them by display
-state and viewer-source hash. It can be rerun after an interrupted export. Those
-intermediate PNGs are disposable after the final videos have been checked.
+state, viewer-source hash and source capture identity. Capture identity includes
+metadata/configuration hashes, the validated asset-hash manifest and current
+asset file metadata. Changed inputs therefore do not silently reuse an earlier
+render. It can be rerun after an interrupted export; media are decoded and
+checked before their temporary files replace the final outputs. Intermediate
+PNGs are disposable after the final videos have been checked.
 
 ## Verify a capture
 
@@ -168,4 +193,7 @@ and the distinction between online growth and completed-map inspection on the
 stable overview cameras. All visual assets in these outputs are newly captured
 EGAS-SLAM states; imagery from those systems is not reused.
 
-The completed checks and deliverable details are recorded in [DEMO_VALIDATION_2026-11-03.md](DEMO_VALIDATION_2026-11-03.md).
+The original capture checks are recorded in
+[DEMO_VALIDATION_2026-11-03.md](DEMO_VALIDATION_2026-11-03.md). The revised
+presentation and media checks are documented in
+[DEMO_REVISION_V2_2026-11-03.md](DEMO_REVISION_V2_2026-11-03.md).

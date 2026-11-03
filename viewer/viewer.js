@@ -6,7 +6,8 @@ window.addEventListener('unhandledrejection',e=>error(e.reason));
 const matrix=a=>new THREE.Matrix4().fromArray(a).transpose();
 const colour=id=>palette[((id%palette.length)+palette.length)%palette.length];
 let run='',frames=[],index=0,playing=false,busy=false,showGaussians=true,lastData=null,history=[],fixedViews=null;
-let events=[],cameraPath=[],lastTimestamp=0;
+let events=[],lastTimestamp=0,compareBefore=false,userFocus='',serial=Promise.resolve();
+function enqueue(job){const next=serial.then(job);serial=next.catch(()=>{});return next}
 const assetCache=new Map(), frameCache=new Map();
 const sphere=new THREE.SphereGeometry(1,7,5);
 const sceneConfigs={};
@@ -36,13 +37,15 @@ function makeView(id){
  const controls=new OrbitControls(camera,renderer.domElement);controls.enableDamping=false;controls.target.set(0,0,1);controls.update();
  scene.add(new THREE.AmbientLight(0xffffff,2));const light=new THREE.DirectionalLight(0xffffff,2);light.position.set(-2,-5,-3);scene.add(light);
  const group=new THREE.Group();scene.add(group);
- const view={id,el,scene,renderer,camera,controls,group,clip:null};
+ const view={id,el,scene,renderer,camera,controls,group,clip:null,userMoved:false,normalAspect:el.clientWidth/el.clientHeight};
+ controls.addEventListener('start',()=>view.userMoved=true);
  const resize=()=>{const w=el.clientWidth,h=el.clientHeight;if(!w||!h)return;renderer.setSize(w,h,false);draw(view)};
  new ResizeObserver(resize).observe(el);controls.addEventListener('change',()=>draw(view));resize();return view;
 }
 const views=[makeView('global'),makeView('local'),makeView('correction')];
 function draw(view){
  const r=view.renderer,w=view.el.clientWidth,h=view.el.clientHeight;
+ if(!w||!h)return;
  if(view.id==='local'&&view.group.children.length===2){
   r.setScissorTest(true);view.camera.aspect=(w/2)/h;view.camera.updateProjectionMatrix();
   for(let j=0;j<2;j++){view.group.children.forEach((g,k)=>g.visible=j===k);r.setViewport(j*w/2,0,w/2,h);r.setScissor(j*w/2,0,w/2,h);r.render(view.scene,view.camera)}
@@ -82,39 +85,58 @@ function pathFor(d){return history.filter(x=>x.frame<=d.frame&&x.stage==='online
 function matrixRows(m){return m.clone().transpose().toArray()}
 function currentEvent(d){const before=events.filter(e=>e.frame<=d.frame);if(!before.length)return null;const latest=before[before.length-1];let start=latest.frame;for(let i=before.length-2;i>=0;i--){if(start-before[i].frame>8)break;start=before[i].frame}return {start,end:latest.frame,items:before.filter(e=>e.frame>=start),recent:d.frame-latest.frame<100}}
 function setImages(d){return Promise.all(['input','hybrid'].map(id=>new Promise((resolve,reject)=>{const im=$(id);im.onload=resolve;im.onerror=()=>reject(new Error(`Image failed ${d[id]}`));im.src=root()+d[id];if(im.complete&&im.naturalWidth)resolve()})))}
-async function show(i,opts={}){
+function show(i,opts={}){return enqueue(()=>renderState(i,opts))}
+async function renderState(i,opts={}){
  if(!frames.length)return;
+ const focusPanel=opts.focus??userFocus;
+ if((document.body.dataset.focus||'')!==focusPanel){
+  document.body.dataset.focus=focusPanel;await new Promise(requestAnimationFrame);
+  for(const v of views){const w=v.el.clientWidth,h=v.el.clientHeight;if(w&&h)v.renderer.setSize(w,h,false)}
+ }
+ $('overview').hidden=!focusPanel;
  index=Math.min(Math.max(0,i),frames.length-1);const d=await frameData(index);lastData=d;
  const cfg=sceneConfigs[run];
  for(const v of views)clear(v.group);
  const useful=d.submaps.filter(s=>s.mesh&&!s.candidate);
  const owner=d.submaps.find(s=>s.sdf_id===d.owner),rank=useful.findIndex(s=>s.id===owner?.id);
  let pair=useful.slice(Math.max(0,rank-1),Math.max(0,rank-1)+2);if(pair.length<2)pair=useful.slice(-2);
- const event=currentEvent(d),needed=new Set();
+ let event=currentEvent(d);const needed=new Set();
+ if(opts.correctionWindow){const w=opts.correctionWindow,items=events.filter(e=>e.frame>=w.startFrame&&e.frame<=w.endFrame&&e.frame<=d.frame);event=items.length?{start:w.startFrame,end:items.at(-1).frame,items,recent:true}:null}
+ const focus=useful.find(s=>s.sdf_id===cfg?.correctionOwner);
+ const selectedEvent=event?.items.find(e=>e.owner===focus?.sdf_id);
+ const comparison=opts.correctionPhase==='compare-before'||opts.correctionPhase==='compare-after';
+ const showOld=opts.correctionPhase==='compare-before'&&!!selectedEvent;
+ const detailPose=focus?(showOld?matrix(selectedEvent.before_global_to_local).invert():matrix(focus.sdf_local_to_global)):null;
  const localGroups=new Map();for(const s of pair){const group=new THREE.Group();views[1].group.add(group);localGroups.set(s.id,group)}
  for(const s of useful){needed.add(run+'/'+s.mesh);const g=await asset(s.mesh,'mesh');
   views[0].group.add(meshObject(g,s,'natural'));
-  if(cfg?.correctionOwner===undefined||s.sdf_id===cfg.correctionOwner)
-   views[2].group.add(meshObject(g,s,s.sdf_id===(cfg?.correctionOwner??d.owner)?'owner':'neutral',1));
-  if(cfg?.correctionOwner===s.sdf_id&&s.gaussians){needed.add(run+'/'+s.gaussians);views[2].group.add(gaussianObject(await asset(s.gaussians,'gaussian'),s))}
+  if(!focus||s.sdf_id===focus.sdf_id){
+   const mesh=meshObject(g,s,s.sdf_id===(focus?.sdf_id??d.owner)?'owner':'neutral',1,focus?detailPose:null);
+   if(showOld)mesh.material.color.set('#c8c4b6');views[2].group.add(mesh);
+  }
+  if(focus?.sdf_id===s.sdf_id&&s.gaussians){needed.add(run+'/'+s.gaussians);const gaussian=gaussianObject(await asset(s.gaussians,'gaussian'),s);if(showOld){gaussian.matrix.copy(detailPose);gaussian.material.color.set('#f2bd69')}views[2].group.add(gaussian)}
   if(pair.some(p=>p.id===s.id)){
    localGroups.get(s.id).add(meshObject(g,s,showGaussians?'local':'owner',1));
    if(showGaussians&&s.gaussians){needed.add(run+'/'+s.gaussians);localGroups.get(s.id).add(gaussianObject(await asset(s.gaussians,'gaussian'),s))}
   }
  }
  // Actual old placements, no fabricated warp or exaggerated displacement.
- if(event?.recent){const first=new Map();for(const e of event.items)if(!first.has(e.owner))first.set(e.owner,e);
+ if(event?.recent&&!comparison){const first=new Map();for(const e of event.items)if(!first.has(e.owner))first.set(e.owner,e);
   for(const s of useful){const e=first.get(s.sdf_id);if(!e||(cfg?.correctionOwner!==undefined&&s.sdf_id!==cfg.correctionOwner))continue;const geom=await asset(s.mesh,'mesh');const ghost=meshObject(geom,s,'owner',.16,matrix(e.before_global_to_local).invert());ghost.material.color.set('#ffffff');ghost.material.wireframe=true;ghost.material.depthWrite=false;views[2].group.add(ghost)}
  }
- const path=pathFor(d);if(path.length>1){views[0].group.add(line(path,'#62dbc2'));views[2].group.add(line(path,'#62dbc2',.8))}
+ const path=pathFor(d);if(path.length>1){views[0].group.add(line(path,'#62dbc2'));if(!focus)views[2].group.add(line(path,'#62dbc2',.8))}
  const pose=matrixRows(correctedCamera(d));views[0].group.add(cameraIcon(pose));
  // Verified graph edges connect the actual submap coordinate origins.
- for(const c of d.loop_constraints){const a=d.submaps.find(s=>s.id===c.from),b=d.submaps.find(s=>s.id===c.to);if(!a||!b)continue;
+ for(const c of d.loop_constraints){if(focus)continue;const a=d.submaps.find(s=>s.id===c.from),b=d.submaps.find(s=>s.id===c.to);if(!a||!b)continue;
   const pa=new THREE.Vector3().setFromMatrixPosition(matrix(a.sdf_local_to_global)),pb=new THREE.Vector3().setFromMatrixPosition(matrix(b.sdf_local_to_global));
   views[2].group.add(line([pa,pb],'#f2bd69'));
  }
  if(opts.fit||!fixedViews){for(const v of views)autoFit(v,v.id==='local' ? .87 : 1);fixedViews=true}
- if(cfg){for(const v of views){const c=cfg[v.id];if(c)setView(v,c.position,c.target,c.up)}}
+ if(cfg){for(const v of views){const c=cfg[v.id==='correction'&&cfg.correctionOwner!==undefined&&!focus?'global':v.id];if(c&&(!v.userMoved||opts.fit||document.body.classList.contains('recording'))){
+   let position=c.position;
+   if(focusPanel&&v.el.clientWidth&&v.el.clientHeight){const scale=Math.max(1,v.normalAspect/(v.el.clientWidth/v.el.clientHeight));const target=new THREE.Vector3(...c.target);position=new THREE.Vector3(...c.position).sub(target).multiplyScalar(scale).add(target).toArray()}
+   setView(v,position,c.target,c.up);
+  }}}
  if(opts.orbit){for(const v of [views[0],views[1]]){const delta=v.camera.position.clone().sub(v.controls.target);delta.applyAxisAngle(v.camera.up,opts.orbit);v.camera.position.copy(v.controls.target).add(delta);v.controls.update()}}
  if(opts.camera){for(const v of views){if(opts.camera[v.id]){const c=opts.camera[v.id];setView(v,c.position,c.target,c.up)}}}
  for(const v of views){
@@ -128,36 +150,44 @@ async function show(i,opts={}){
  $('submaps').textContent=useful.length;$('gaussians').textContent=d.submaps.reduce((n,s)=>n+s.gaussian_count,0).toLocaleString();$('resident').textContent=d.resident_sdf_maps;
  $('state').textContent=event?.recent?(d.pending_transforms?'APPLYING RECORDED CORRECTION':'RECORDED MAP CORRECTION'):d.stage==='terminal'?'RECONSTRUCTION COMPLETE':'RECONSTRUCTING';
  $('local').classList.toggle('split',pair.length===2);
+ $('localdesc').textContent=pair.length===2?'Two overlapping local maps, viewed from the same position':'The first local map grows as new camera images arrive';
  $('locallabels').innerHTML=pair.map(s=>`<span style="color:${colour(s.id)}">SUBMAP ${s.id}</span>`).join('');
- $('ownerlegend').innerHTML=pair.map(s=>`<span class="dot" style="background:${colour(s.id)}"></span> Submap ${s.id}${s.frozen?' · frozen':s.sdf_id===d.owner?' · primary':' · overlap'}`).join('&nbsp;&nbsp;&nbsp;')+`<span class="rightnote">${showGaussians?'Same viewpoint · SDF + sampled 2σ Gaussians':'Owner-coloured SDF surfaces'}</span>`;
- $('eventstate').textContent=event?.recent?'VERIFIED REVISIT · ACTUAL CORRECTION':event?'MAP CORRECTION RETAINED':'SEARCHING FOR REVISITS';
+ $('ownerlegend').innerHTML=pair.map(s=>`<span class="dot" style="background:${colour(s.id)}"></span> Map ${s.id}${s.frozen?' · frozen appearance':s.sdf_id===d.owner?' · current':' · overlap'}`).join('&nbsp;&nbsp;&nbsp;')+`<span class="rightnote">${showGaussians?'SDF + sampled Gaussian shapes':'Owner-coloured SDF surfaces'}</span>`;
+ $('eventstate').textContent=event?.recent?'VERIFIED REVISIT · ACTUAL CORRECTION':event?'MAP CORRECTION RETAINED':d.stage==='terminal'?'NO LOOP CORRECTION IN THIS RECORDING':d.loop_constraints.length?'VERIFIED REVISIT · NO APPLIED CORRECTION YET':'SEARCHING FOR REVISITS';
  $('eventtext').textContent=event?.recent?'Geometry and appearance move together':event?'Corrected submap placements':'Local maps share a global frame';
- $('eventdetail').textContent=event?.recent?`${new Set(event.items.map(e=>e.owner)).size} owners updated so far · ${d.pending_transforms} queued. Faint wireframe: previous placement.`:'The highlighted local map belongs to the current camera. A verified revisit can adjust submap placements without rebuilding their contents.';
+ $('eventdetail').textContent=event?.recent?`${new Set(event.items.map(e=>e.owner)).size} local maps updated · ${d.pending_transforms} queued.`:'Colour identifies the current local map. A verified revisit can correct map placements.';
  if(cfg?.correctionOwner!==undefined){
   const selected=event?.items.find(e=>e.owner===cfg.correctionOwner);
   if(selected&&event.recent){const old=matrix(selected.before_global_to_local).invert(),s=d.submaps.find(s=>s.sdf_id===cfg.correctionOwner);
    const shift=new THREE.Vector3().setFromMatrixPosition(old).distanceTo(new THREE.Vector3().setFromMatrixPosition(matrix(s.sdf_local_to_global)));
-   $('eventdetail').textContent=`${new Set(event.items.map(e=>e.owner)).size} submaps updated · selected submap: ${(shift*100).toFixed(1)} cm translation. White outline: previous placement.`;
-  }else if(!event){$('eventtext').textContent=`Submap ${cfg.correctionOwner}: correction detail`;$('eventdetail').textContent='Selected local geometry and Gaussian detail. This owner will be compared at its recorded placements.'}
+   $('eventdetail').textContent=`${new Set(event.items.map(e=>e.owner)).size} maps updated · map ${focus.id} origin moved ${(shift*100).toFixed(1)} cm.`;
+  }else if(!event&&focus){$('eventtext').textContent=`Map ${focus.id}: geometry + Gaussian detail`;$('eventdetail').textContent=d.loop_constraints.length?'A revisit has been verified. No correction has been applied at this recorded frame.':'This close view makes changes in the local map’s placement easier to see.'}
  }
- $('loopnote').textContent=(cfg?.correctionOwner!==undefined?`Detail: submap ${cfg.correctionOwner} · `:'')+(event?'rigid correction · actual displacement':'No applied loop correction in the captured state');
+ const loop=d.loop_constraints.at(-1);
+ $('loopdesc').textContent=focus&&loop?`Verified revisit: maps ${loop.from} ↔ ${loop.to} · correction detail: map ${focus.id}`:'A verified revisit can correct the placement of local maps';
+ $('loopnote').textContent=selectedEvent?(comparison?'Identical local contents · actual recorded before/after placements':'White wireframe: before · colour: current · actual displacement'):'Colour: current placement · no applied correction in this state';
+ $('correctionbadge').className=comparison?(showOld?'before':'after'):'';
+ $('correctionbadge').textContent=comparison?(showOld?'BEFORE · COMPARISON REPLAY':'AFTER · COMPARISON REPLAY'):opts.correctionPhase==='before'?'BEFORE CORRECTION':opts.correctionPhase==='after'?'AFTER CORRECTION':focus?`MAP ${focus.id} · CORRECTION DETAIL`:'';
+ if(comparison){$('eventstate').textContent='SAME LOCAL MAP · FIXED CAMERA';$('eventtext').textContent=showOld?'Recorded placement before correction':'Recorded placement after correction'}
+ $('compare').disabled=!selectedEvent;$('compare').textContent=showOld?'Show corrected placement':'Show before correction';
  $('seek').value=index;
  const imageData=opts.imageIndex!==undefined?await frameData(opts.imageIndex):d;
  $('inputdesc').textContent=opts.imageIndex!==undefined?`Recorded input and native hybrid pair · frame ${imageData.frame}`:'The same viewpoint, captured at the same processing stage';
  await setImages(imageData);
  // Bound CPU/GPU asset retention. Keep current views only plus a small working set.
  for(const [key,value] of assetCache){if(assetCache.size<=18)break;if(!needed.has(key)){if(value.isBufferGeometry)value.dispose();assetCache.delete(key)}}
- window.demoState={run,index,frame:d.frame,stage:d.stage,submaps:useful.length,applied:d.applied_transform_count,errors:0};
+ window.demoState={run,index,frame:d.frame,stage:d.stage,submaps:useful.length,applied:d.applied_transform_count,errors:0,detailOwner:focus?.sdf_id,detailPose:detailPose?matrixRows(detailPose):null,comparison:comparison?(showOld?'before':'after'):null};
  return window.demoState;
 }
-async function loadRun(id,{fit=true}={}){
+function loadRun(id,opts={}){return enqueue(()=>loadRunNow(id,opts))}
+async function loadRunNow(id,{fit=true}={}){
  playing=false;const changed=run!==id;run=id;frames=await fetchJSON(`/api/frames?run=${encodeURIComponent(id)}`);frameCache.clear();history=[];if(changed)fixedViews=null;
- $('run').value=id;$('seek').max=Math.max(0,frames.length-1);
+ $('run').value=id;$('seek').max=Math.max(0,frames.length-1);$('play').textContent='Play';compareBefore=false;if(changed)for(const v of views)v.userMoved=false;
  try{const r=await fetch(root()+'transforms.jsonl');events=r.ok?(await r.text()).trim().split('\n').filter(Boolean).map(JSON.parse):[]}catch{events=[]}
  // Metadata only; no future geometry is shown. Used to draw the past camera path.
  for(let i=0;i<frames.length;i++)history.push(await frameData(i));
  if(frames.length){const first=await frameData(0);if(!sceneConfigs[id]){try{const r=await fetch(`/scenes/${first.dataset}_${first.scene}.json`);if(r.ok)sceneConfigs[id]=await r.json()}catch{}}
-  await show(Math.min(index,frames.length-1),{fit});}
+  await renderState(Math.min(index,frames.length-1),{fit});}
  return frames.length;
 }
 async function refresh(){
@@ -167,11 +197,14 @@ async function refresh(){
  if($('follow').checked&&run&&!busy){busy=true;try{const next=await fetchJSON(`/api/frames?run=${encodeURIComponent(run)}`);if(next.length>frames.length){await loadRun(run,{fit:false});await show(frames.length-1)}}finally{busy=false}}
 }
 $('run').onchange=()=>loadRun($('run').value).catch(error);
-$('seek').oninput=async()=>{playing=false;if(busy)return;busy=true;try{await show(Number($('seek').value))}catch(e){error(e)}finally{busy=false}};
+$('seek').oninput=async()=>{playing=false;$('play').textContent='Play';compareBefore=false;if(busy)return;busy=true;try{await show(Number($('seek').value))}catch(e){error(e)}finally{busy=false}};
 $('play').onclick=()=>{playing=!playing;$('play').textContent=playing?'Pause':'Play'};
-$('fit').onclick=()=>{for(const v of views){autoFit(v);draw(v)}};
+$('fit').onclick=()=>{for(const v of views)v.userMoved=false;show(index,{fit:true}).catch(error)};
 $('gs').onclick=()=>{showGaussians=!showGaussians;show(index).catch(error)};
-async function tick(t){if(playing&&!busy&&t-lastTimestamp>100){lastTimestamp=t;busy=true;try{await show((index+1)%frames.length)}catch(e){error(e)}finally{busy=false}}requestAnimationFrame(tick)}
+$('compare').onclick=()=>{playing=false;$('play').textContent='Play';compareBefore=window.demoState?.comparison!=='before';show(index,{correctionPhase:compareBefore?'compare-before':'compare-after'}).catch(error)};
+$('overview').onclick=()=>{userFocus='';show(index).catch(error)};
+for(const [panel,key] of [['p-input','input'],['p-map','map'],['p-submaps','submaps'],['p-loop','correction']])$(panel).querySelector('.panelhead').onclick=()=>{userFocus=userFocus===key?'':key;show(index).catch(error)};
+async function tick(t){if(playing&&!busy&&t-lastTimestamp>Number($('speed').value)){lastTimestamp=t;busy=true;compareBefore=false;try{await show((index+1)%frames.length)}catch(e){error(e)}finally{busy=false}}requestAnimationFrame(tick)}
 window.demo={loadRun,show,frames:()=>frames,config:(id,cfg)=>sceneConfigs[id]=cfg,setGaussians:v=>showGaussians=v,
  cameras:()=>Object.fromEntries(views.map(v=>[v.id,{position:v.camera.position.toArray(),target:v.controls.target.toArray(),up:v.camera.up.toArray()}])),
  record:v=>document.body.classList.toggle('recording',v),setDisclosure:t=>$('disclosure').textContent=t};
