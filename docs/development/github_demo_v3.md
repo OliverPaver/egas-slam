@@ -58,7 +58,7 @@ passive-map assets can predate final finishing, as recorded in their filenames.
 
 ## Reproduction and provenance
 
-Follow the commands under **Current GitHub film** in [DEMO_GUIDE.md](DEMO_GUIDE.md).
+Follow the commands under **Current GitHub film** in [DEMO_GUIDE.md](../../DEMO_GUIDE.md).
 The new components are:
 
 - `scripts/github_export.py`: prepares original RGB assets, validates the edit,
@@ -69,14 +69,14 @@ The new components are:
   within the explicitly supplied local directory.
 
 Prepared source material lives at
-`/home/oliver/egas_workspace/presentation/github_v3/`. It contains local
+`$HOME/egas_workspace/presentation/github_v3/`. It contains local
 hardlinks/copies, `story.json`, the identical historical path comparison and
 SHA-256 provenance for all original RGB files. Native capture identity reuses
 the completed-run receipts, validated asset manifests, configuration hashes
 and snapshot metadata. The exporter never writes into the native recordings.
 
 Outputs live at
-`/home/oliver/egas_workspace/deliverables/EGAS_SLAM_GitHub_v3_2026-11-03/`:
+`$HOME/egas_workspace/deliverables/EGAS_SLAM_GitHub_v3_2026-11-03/`:
 
 - `EGAS_SLAM_GitHub_Preview.mp4`: 65.2 seconds, 1920 × 1080, 30 fps, silent.
 - `EGAS_SLAM_GitHub_Preview.gif`: 960 × 540 animated preview at 10 fps.
@@ -122,9 +122,9 @@ for the late submaps. Earlier v2 media hashes remain unchanged.
 Validation commands: `python scripts/github_export.py`, `python -m py_compile
 scripts/github_export.py scripts/demo_viewer.py`, and `git diff --check`. The
 additional decoded-image motion check is retained locally in
-`/home/oliver/egas_workspace/validation/github_v3/check_encoded.py`; its output
+`$HOME/egas_workspace/validation/github_v3/check_encoded.py`; its output
 is `motion_validation.json`, tied to the final video hash.
 
 The shareable package is copied to
-`/home/oliver/Downloads/EGAS_SLAM_GitHub_v3_2026-11-03/`. No pending fixes remain
+`$HOME/Downloads/EGAS_SLAM_GitHub_v3_2026-11-03/`. No pending fixes remain
 from this pass. Publishing the files is separate from this local media update.

@@ -2,14 +2,14 @@
 
 ## Current desktop development checkout
 
-This checkout is `/home/oliver/EGAS-SLAM`, based on final Thor/GitHub release
+This checkout is `$HOME/EGAS-SLAM`, based on final Thor/GitHub release
 `c944954d7000d2c905975c784f30a99ff7f3ff04`. Current work is authorised local
 development on an RTX 3070 (SM 86), not thesis revision or Thor deployment.
 Read `DESKTOP_SETUP.md` and `configs/desktop/README.md` before running experiments.
 
 - Build: `./egas build` (native GCC/CUDA and existing PyTorch).
 - Run: `./egas train --dataset replica --scene office0`; use unique run names.
-- Summarise: `./egas summary /home/oliver/egas_workspace/runs/<run>`.
+- Summarise: `./egas summary $HOME/egas_workspace/runs/<run>`.
 - Source and all execution/input/output must stay on local storage; the SanDisk
   is a read-only transfer source for this setup.
 - Replica desktop inputs are physically 600x340 with matching intrinsics and

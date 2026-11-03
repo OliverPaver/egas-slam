@@ -3,7 +3,7 @@
 GPS-SLAM couples an InfiniTAM SDF representation with a Gaussian model. The SDF
 engine tracks and integrates RGB-D frames and provides raycast geometry and
 colour. Gaussian optimization adds image detail using that geometric reference.
-The proposed path partitions both representations into submaps while retaining
+EGAS-SLAM partitions both representations into submaps while retaining
 the original single-map implementation.
 
 ## Runtime flow
@@ -33,7 +33,7 @@ proof that all native work or exports have completed.
 
 `PIPE.TSDF.engine: basic` selects the original BasicEngine. With Gaussian submaps
 disabled, this uses a unified Gaussian model. `engine: multi` selects MultiEngine;
-the final proposed templates pair it with Gaussian submaps using
+the final EGAS-SLAM templates pair it with Gaussian submaps using
 `ownership: tsdf` and `coordinate_frame: local`.
 
 Each Gaussian submap belongs to an SDF submap. SDF voxels and Gaussian parameters
@@ -69,7 +69,7 @@ The pose-graph solver combines sequential and accepted loop constraints, while
 support, residual, observation and tracking-health checks govern application.
 Detecting a candidate does not guarantee that a correction will be applied.
 
-The final proposed TUM and Replica templates enable this pipeline path. The
+The final EGAS-SLAM TUM and Replica templates enable this pipeline path. The
 separate `PIPE.TSDF.multi.loop_closure` and `global_adjustment` switches remain
 false; they are not aliases for `PIPE.pose_graph.online_updates`.
 

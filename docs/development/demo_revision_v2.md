@@ -3,7 +3,7 @@
 This revision improves framing, pacing and explanation of the existing local
 recordings. Native capture code, SLAM algorithms, run configurations and captured
 map contents are unchanged. The original videos remain in
-`/home/oliver/Downloads/EGAS_SLAM_Demo_2026-11-03/`.
+`$HOME/Downloads/EGAS_SLAM_Demo_2026-11-03/`.
 
 ## Presentation changes
 
@@ -92,18 +92,18 @@ media are promoted only after successful rendering or decoding.
   The small panel naturally provides less detail at 720p; enlarging it is useful.
 - The original complete-run capture validation remains applicable: 2,000 native
   1200 × 680 Replica frames and 2,485 native 640 × 480 TUM frames, using estimated
-  poses. See [the original validation report](DEMO_VALIDATION_2026-11-03.md).
+  poses. See [the original validation report](demo_validation.md).
 
 The independent checks, camera screenshots and inspected encoded frames are in
-`/home/oliver/egas_workspace/validation/demo_v2/`. Exact edit decisions and media
+`$HOME/egas_workspace/validation/demo_v2/`. Exact edit decisions and media
 validation are stored alongside the revised authoritative exports in
-`/home/oliver/egas_workspace/deliverables/EGAS_SLAM_Demo_v2_2026-11-03/`.
+`$HOME/egas_workspace/deliverables/EGAS_SLAM_Demo_v2_2026-11-03/`.
 
 Display meshes still use 1 cm vertex clustering and existing cutaway bounds;
 Gaussian ellipsoids are sampled. Native input/hybrid images are unchanged.
 Offline views can retain earlier captured surfaces and Gaussian samples of a
 passive map, as identified by asset filenames and mesh timestamps. Playback timing is adjusted for explanation and does not
-measure real-time performance. See [DEMO_GUIDE.md](DEMO_GUIDE.md) for commands,
+measure real-time performance. See [DEMO_GUIDE.md](../../DEMO_GUIDE.md) for commands,
 controls and capture boundaries.
 
 ## Final media and handoff
@@ -123,7 +123,7 @@ caption says that the separate local maps are placed together in one global map.
 No JavaScript errors occurred during the complete export.
 
 The share folder is
-`/home/oliver/Downloads/EGAS_SLAM_Demo_v2_2026-11-03/`. It contains the four media
+`$HOME/Downloads/EGAS_SLAM_Demo_v2_2026-11-03/`. It contains the four media
 files, an executable local viewer launcher, quick-start instructions, a GitHub
 embedding example and the validation records. Copied media were SHA-256 checked
 against the authoritative exports. No required task remains open.

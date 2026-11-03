@@ -1,17 +1,46 @@
 # Contributing
 
-Thank you for helping improve this research software. Open an issue before a substantial change so scope, evaluation cost, and licensing can be agreed first.
+For a substantial change, open an issue describing the intended behaviour and
+scope before implementation. Small fixes should explain the problem, change
+and validation in the pull request.
 
-## Development rules
+## Development
 
-- Work from a topic branch and keep commits small, imperative, and scoped, for example `slam: reject incomplete loop jobs`.
-- Use four-space indentation and nearby Allman-style C++/CUDA conventions. Python and YAML names use `snake_case`.
-- Do not reformat vendored code or mix unrelated cleanup with behavior changes.
-- Do not commit datasets, weights, builds, generated configs, workspaces, checkpoints, full renders, telemetry, or credentials.
-- Keep experimental behavior disabled by default and validate configuration errors at startup.
+- Work on a topic branch and use concise, scoped commits.
+- Match the surrounding C++17/CUDA style; use four-space indentation and
+  `snake_case` in Python/YAML. Avoid unrelated vendored-code reformatting.
+- Keep datasets, weights, builds, generated workspaces, checkpoints and
+  credentials out of Git. Curated demonstration assets belong in `assets/demo/`.
+- Preserve the frozen `configs/final/` templates and historical source manifest.
+  New experiments should have explicit new configurations and source identities.
+- Experimental behaviour should remain disabled by default and report invalid
+  configuration clearly.
 
-Every source change must build on Thor, pass `bash scripts/thor_container.sh regressions`, and receive a representative scene smoke test. Algorithm changes also require exact configuration, seed, hardware/power state, complete-frame status, accuracy/quality, timing, memory, and failure results. A functional change requires an updated source manifest and new validation; it cannot inherit measurements from a previous build.
+## Validation
 
-Pull requests must describe the motivation and behavior, link relevant issues, list commands/results, identify licensing effects, and include focused logs or renders for quality/performance changes. Confirm `python3 tools/release_hygiene.py --source-manifest SOURCE_MANIFEST.json` passes before submission.
+For documentation, check local links and executable examples. For portable
+launcher changes, check CLI behaviour and run a short scene on the affected
+platform. Native changes must build and pass the relevant regressions on that
+platform; desktop-only changes do not claim fresh Thor validation. A change
+advertised as Thor-compatible also needs Thor validation.
 
-By contributing, you confirm you have the right to submit the work under terms compatible with every affected component. Do not copy code with unclear provenance. Publication-related author or contributor credit is determined by documented scholarly contribution, not by Git activity alone.
+Algorithm changes should report their exact configuration, seed, hardware,
+completion state and relevant accuracy, image-quality, timing and memory
+measurements. New binaries do not inherit historical benchmark results.
+
+The source checks are:
+
+```bash
+python3 tools/release_hygiene.py
+python3 tools/release_hygiene.py --source-manifest SOURCE_MANIFEST.json \
+  --source-manifest-ref c944954d7000d2c905975c784f30a99ff7f3ff04
+```
+
+The first checks the current tree. The second verifies the unchanged manifest
+against its historical release, not against new desktop files. The CI workflow
+also runs syntax checks and hardware-independent regressions. Native build and
+smoke-run evidence should be included in the pull request when applicable.
+
+Retain all third-party notices. Contributors must have the right to submit
+changes under terms compatible with the affected components. Publication credit
+follows documented scholarly contribution rather than Git activity alone.

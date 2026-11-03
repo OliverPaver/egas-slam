@@ -31,9 +31,9 @@ setup and commands in [REPRODUCIBILITY.md](../REPRODUCIBILITY.md).
 
 ## Build profile and runtime settings
 
-| Setting | Final proposed configuration | Meaning |
+| Setting | Final EGAS-SLAM configuration | Meaning |
 | --- | --- | --- |
-| Build hash profile | `medium_128k` | Compile-time SDF capacity profile for the proposed engine. |
+| Build hash profile | `medium_128k` | Compile-time SDF capacity profile for the EGAS-SLAM engine. |
 | `PIPE.TSDF.engine` | `multi` | Use SDF submaps. |
 | `PIPE.TSDF.multi.hash_profile` | `medium_128k` | Runtime configuration must match the binary's profile. |
 | `PIPE.gaussian_submaps.enable` | `true` | Pair Gaussian submaps with the SDF maps. |
@@ -51,10 +51,10 @@ setup and commands in [REPRODUCIBILITY.md](../REPRODUCIBILITY.md).
 
 The original-algorithm build uses `legacy_pool_2m`, BasicEngine and a unified
 Gaussian model. It is a separate configuration and binary, not a runtime toggle
-on a `medium_128k` build. The presets use `build_thor/` for the proposed binary
+on a `medium_128k` build. The presets use `build_thor/` for the EGAS-SLAM binary
 and `build_original/` for the original-algorithm binary.
 
-BasicEngine capacity instrumentation is compiled OFF for the proposed preset
+BasicEngine capacity instrumentation is compiled OFF for the EGAS-SLAM preset
 and ON for the original preset. That switch controls the added BasicEngine
 capacity instrumentation; it is distinct from the runtime's full measurement
 profile. Preserve those settings and the runtime environment when comparing
@@ -62,7 +62,7 @@ measurements. Do not infer diagnostic scope from a build directory name alone.
 
 ## Loop closure and map transitions
 
-Both proposed dataset groups use `PIPE.pose_graph.candidate_detection: true`,
+Both EGAS-SLAM dataset groups use `PIPE.pose_graph.candidate_detection: true`,
 `online_updates: true` and `apply_mode: loop_candidates`. Internal MultiEngine
 `loop_closure` and `global_adjustment` remain false. Disabling one internal
 switch does not disable the pipeline's pose-graph path.

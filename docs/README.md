@@ -1,17 +1,22 @@
-# Implementation documentation
+# EGAS-SLAM documentation
 
-Start with the [reproducibility guide](../REPRODUCIBILITY.md) to build and run a
-scene, or the architecture guide to follow the code.
+Start with the installation guide for your hardware, or follow the architecture
+from RGB-D input through local mapping and loop correction.
 
 | Guide | Contents |
 | --- | --- |
-| [Architecture](ARCHITECTURE.md) | Runtime flow, map ownership, loop correction and saved-map evaluation. |
-| [Configuration](CONFIGURATION.md) | Final scene templates, build profiles and important runtime controls. |
-| [Thor build rationale](THOR_PORTING.md) | Native CUDA/Torch compatibility, dependencies and container boundaries. |
-| [Measurement and validation](BENCHMARK_HARDENING.md) | Timing, metric support, completion, resources and source identity. |
-| [Provenance](../PROVENANCE.md) | Source lineage and the evaluation-only overlap metadata correction. |
-| [Third-party notices](../THIRD_PARTY_NOTICES.md) | Bundled component attribution and retained licence texts. |
+| [Desktop setup](desktop_setup.md) | Linux x86-64 dependencies, data preparation, first run and troubleshooting |
+| [Thor reproduction](../REPRODUCIBILITY.md) | Pinned environment, final configurations, build and evaluation |
+| [Architecture](ARCHITECTURE.md) | Runtime flow, ownership, lifecycle, paging, loop correction and source map |
+| [Configuration](CONFIGURATION.md) | Final presets, build profiles and runtime controls |
+| [Results](results.md) | Final Thor comparisons, metric definitions and evaluation boundaries |
+| [Demonstration](../DEMO_GUIDE.md) | Video, optional capture, browser viewer and export |
+| [Thor porting](THOR_PORTING.md) | Native CUDA/Torch compatibility and build rationale |
+| [Measurement and validation](BENCHMARK_HARDENING.md) | Timing, metric support, completion and resource measurements |
+| [Provenance](../PROVENANCE.md) | Source lineage and the evaluation-only overlap correction |
+| [Third-party notices](../THIRD_PARTY_NOTICES.md) | Component attribution and licence terms |
 
-These guides describe the shipped software. Numerical benchmark results,
-historical execution records and thesis material are maintained outside this
-implementation repository.
+Historical desktop and visualisation checks are in
+[development records](development/README.md). The results guide reports the
+retained thesis measurements; raw benchmark payloads and dataset files are
+maintained separately.

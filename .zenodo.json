@@ -1,7 +1,7 @@
 {
-  "title": "Robust Submap-Based Gaussian-plus-SDF SLAM with Loop Closure on NVIDIA Jetson AGX Thor",
+  "title": "EGAS-SLAM: Loop-Closed Gaussian–SDF Submaps for Embedded RGB-D SLAM",
   "upload_type": "software",
-  "description": "A research fork of GPS-SLAM adding bounded Gaussian/SDF submaps, loop closure, tracking containment, benchmark hardening, and native NVIDIA Jetson AGX Thor deployment.",
+  "description": "EGAS-SLAM extends GPS-SLAM with coupled local SDF/Gaussian submaps, lifecycle and residency controls, guarded pose-graph loop correction, tracking containment, reproducible evaluation and native NVIDIA Jetson AGX Thor deployment.",
   "version": "1.1.0",
   "creators": [
     {

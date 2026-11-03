@@ -1,7 +1,7 @@
 # EGAS-SLAM desktop setup and validation — 3 November 2026
 
 The final Thor implementation is built and runnable locally in
-`/home/oliver/EGAS-SLAM`. Full runs of Replica office0, Replica room0 and TUM
+`$HOME/EGAS-SLAM`. Full runs of Replica office0, Replica room0 and TUM
 fr3_office completed successfully with estimated camera poses. Saved-map
 rendering was checked for both Replica scenes. This checkout is ready for
 continued desktop development; these observations are desktop validation, not
@@ -34,8 +34,8 @@ revision therefore identifies the upstream commit; it also contains the CMake
 portability changes described below. Run receipts record the dirty patch and
 binary hashes rather than pretending that this was an untouched upstream build.
 The exact build identity, dynamic dependencies and source verification are in
-`/home/oliver/egas_workspace/setup/build_identity.json` and
-`/home/oliver/egas_workspace/setup/source_verification.txt`.
+`$HOME/egas_workspace/setup/build_identity.json` and
+`$HOME/egas_workspace/setup/source_verification.txt`.
 
 ## Changes made for this PC
 
@@ -190,8 +190,8 @@ Root has approximately **60 GiB available** after setup and validation. Restore
 the exact TUM TSDF directory before any workflow that needs its unpacked files:
 
 ```bash
-tar --zstd -xf /home/oliver/egas_workspace/runs/validated_tum_office/map/tsdf_engine.tar.zst \
-  -C /home/oliver/egas_workspace/runs/validated_tum_office/map
+tar --zstd -xf $HOME/egas_workspace/runs/validated_tum_office/map/tsdf_engine.tar.zst \
+  -C $HOME/egas_workspace/runs/validated_tum_office/map
 ```
 
 Its checksum and member verification are in that run's `record/checkpoint_archive.json`
@@ -200,7 +200,7 @@ and `record/tsdf_engine_archive_files.json`. Replica checkpoints remain unpacked
 ## Continue development
 
 ```bash
-cd /home/oliver/EGAS-SLAM
+cd $HOME/EGAS-SLAM
 ./egas build
 ./egas train --dataset replica --scene office0
 ./egas train --dataset replica --scene room0 --no-save
@@ -210,14 +210,14 @@ cd /home/oliver/EGAS-SLAM
 Use a fresh name for every run, optionally with `--name my_new_run`. Preparation
 for another local Replica scene is `./egas prepare --scene office1`. Rendering
 and summary examples, environment details and configuration notes are in
-[DESKTOP_SETUP.md](DESKTOP_SETUP.md) and
-[configs/desktop/README.md](configs/desktop/README.md).
+[DESKTOP_SETUP.md](desktop_setup_record.md) and
+[configs/desktop/README.md](../../configs/desktop/README.md).
 
 The canonical desktop validation summary is
-`/home/oliver/egas_workspace/validation/desktop_run_summary_final.json`.
+`$HOME/egas_workspace/validation/desktop_run_summary_final.json`.
 The three run folders are `validated_replica_office0`,
 `validated_replica_room0` and `validated_tum_office` under
-`/home/oliver/egas_workspace/runs/`. Their `record/` directories retain exact
+`$HOME/egas_workspace/runs/`. Their `record/` directories retain exact
 configuration, native log, run receipt, hashes, telemetry and validation summary.
 No required setup work remains. Other scenes and the optional interactive
 viewer have not been validated in this pass; the headless trainer and saved-map

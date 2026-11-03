@@ -77,15 +77,15 @@ owner Gaussians. The scene change between Replica and TUM is labelled.
 
 ## Locations and reproduction
 
-- Share folder: `/home/oliver/Downloads/EGAS_SLAM_Demo_2026-11-03/`.
+- Share folder: `$HOME/Downloads/EGAS_SLAM_Demo_2026-11-03/`.
 - Authoritative exports, edit decisions and media hashes:
-  `/home/oliver/egas_workspace/deliverables/EGAS_SLAM_Demo_2026-11-03/`.
-- Capture runs: `/home/oliver/egas_workspace/runs/demo_replica_room0_full/` and
-  `/home/oliver/egas_workspace/runs/demo_tum_office/`.
+  `$HOME/egas_workspace/deliverables/EGAS_SLAM_Demo_2026-11-03/`.
+- Capture runs: `$HOME/egas_workspace/runs/demo_replica_room0_full/` and
+  `$HOME/egas_workspace/runs/demo_tum_office/`.
 - Browser checks and inspected frames:
-  `/home/oliver/egas_workspace/validation/demo/`.
-- Build, capture and export logs: `/home/oliver/egas_workspace/logs/demo_*.log`.
-- Editable implementation and reproduction commands: [DEMO_GUIDE.md](DEMO_GUIDE.md).
+  `$HOME/egas_workspace/validation/demo/`.
+- Build, capture and export logs: `$HOME/egas_workspace/logs/demo_*.log`.
+- Editable implementation and reproduction commands: [DEMO_GUIDE.md](../../DEMO_GUIDE.md).
 
 The copies in Downloads were hash-checked against the verified original exports.
 The viewer depends on the retained local capture folders; the videos, GIF and

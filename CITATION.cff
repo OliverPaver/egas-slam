@@ -1,9 +1,9 @@
 cff-version: 1.2.0
 message: "If you use this software, cite this repository and the original GPS-SLAM paper."
-title: "Robust Submap-Based Gaussian-plus-SDF SLAM with Loop Closure on NVIDIA Jetson AGX Thor"
+title: "EGAS-SLAM: Loop-Closed Gaussian–SDF Submaps for Embedded RGB-D SLAM"
 type: software
 version: 1.1.0
-abstract: "Research software developed by Oliver Paver at The University of Manchester under the supervision of Prof. Mikel Luján (ORCID 0000-0002-0842-1083)."
+abstract: "EGAS-SLAM extends GPS-SLAM with coupled local SDF/Gaussian submaps, guarded pose-graph loop correction, tracking containment and native NVIDIA Jetson AGX Thor deployment. Developed by Oliver Paver at The University of Manchester under the supervision of Prof. Mikel Luján (ORCID 0000-0002-0842-1083)."
 authors:
   - family-names: Paver
     given-names: Oliver

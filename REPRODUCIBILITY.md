@@ -1,6 +1,6 @@
 # Build and run the final implementation
 
-This source distribution targets Jetson AGX Thor, JetPack 7.1, native AArch64 and CUDA SM 110. It includes the proposed submap system, a separately configured capacity-augmented original-algorithm control, saved-map rendering and evaluation utilities. Benchmark campaigns, comparator implementations, thesis results and data are maintained separately.
+This source distribution targets Jetson AGX Thor, JetPack 7.1, native AArch64 and CUDA SM 110. It includes the proposed submap system, a separately configured capacity-augmented original-algorithm control, saved-map rendering and evaluation utilities. Benchmark campaigns, comparator implementations and raw data are maintained separately; verified headline results and their protocol are in [the results guide](docs/results.md).
 
 ## External directories
 
@@ -46,6 +46,10 @@ bash scripts/thor_container.sh build
 bash scripts/thor_container.sh baseline-build
 bash scripts/thor_container.sh source-check
 ```
+
+`source-check` checks the current checkout's hygiene and verifies the immutable
+Thor manifest against commit `c944954`. It requires Git history and does not
+assert that later desktop commits match the historical source byte for byte.
 
 | Command | Binary | TSDF hash profile | BasicEngine capacity instrumentation |
 |---|---|---|---|

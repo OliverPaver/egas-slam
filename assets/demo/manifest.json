@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "title": "EGAS-SLAM continuous GitHub demonstration",
+  "recordings": [
+    {
+      "dataset": "Replica",
+      "scene": "room0",
+      "input_resolution": [
+        1200,
+        680
+      ],
+      "poses": "estimated"
+    },
+    {
+      "dataset": "TUM RGB-D",
+      "scene": "freiburg3_long_office_household",
+      "input_resolution": [
+        640,
+        480
+      ],
+      "poses": "estimated"
+    }
+  ],
+  "loop_example": {
+    "submap_ids": [
+      0,
+      18
+    ],
+    "before_frame": 1919,
+    "after_frame": 1924,
+    "camera_samples": 118,
+    "comparison": "Identical captured local geometry and camera-to-owner samples placed using the recorded before and after submap transforms."
+  },
+  "timing": "Presentation playback, not measured processing throughput. GIF duration differs slightly through frame-delay quantisation.",
+  "original_mp4_preserved": true,
+  "files": {
+    "egas-slam.mp4": {
+      "bytes": 26947675,
+      "sha256": "1fe16a2bbb0da7834803c0229e97b9cdc318e59aa9291bff360b1d20cca39875",
+      "programs": [],
+      "streams": [
+        {
+          "codec_name": "h264",
+          "width": 1920,
+          "height": 1080,
+          "pix_fmt": "yuv420p",
+          "r_frame_rate": "30/1",
+          "nb_frames": "1956"
+        }
+      ],
+      "format": {
+        "duration": "65.200000"
+      }
+    },
+    "preview.gif": {
+      "bytes": 9393004,
+      "sha256": "66db408cda3a5ce73dcd5c0cb40a7ed505d54e85a0ccf7ffbdc4564a51de0bf4",
+      "programs": [],
+      "streams": [
+        {
+          "codec_name": "gif",
+          "width": 720,
+          "height": 405,
+          "pix_fmt": "bgra",
+          "r_frame_rate": "8/1",
+          "nb_frames": "522"
+        }
+      ],
+      "format": {
+        "duration": "65.260000"
+      }
+    },
+    "poster.png": {
+      "bytes": 1098046,
+      "sha256": "3d90deb70a281423499ef0a268c26ccb3bfec5f570808d8a8da79f96f3c31edf",
+      "width": 1920,
+      "height": 1080
+    }
+  },
+  "exporter_code_commit": "84226e9861fcb53561e459656fca52eb81d23a59"
+}
