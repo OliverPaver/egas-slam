@@ -1,0 +1,23 @@
+# These are overlays, not replacement scientific presets. All algorithm settings
+# come from configs/final. Replica images are prepared at half resolution and
+# both tracker and Gaussian cameras receive matching calibration (downscale=1).
+replica:
+  scenes: [office0, office1, office2, office3, office4, room0, room1, room2]
+  train_template: configs/final/replica/{scene}.yaml
+  eval_template: configs/final/replica/{scene}_eval.yaml
+  downscale_factor: 1
+  image_shape: [600, 340]
+  intrinsics: [300, 300, 299.75, 169.75]
+  prepared_directory: replica_half
+  legacy_full_root: GPS_SLAM/GPS-SLAM/data/replica
+  legacy_raw_root: GPS_SLAM/GPS-SLAM/data/Replica_raw
+tum:
+  scenes: [fr1_desk, fr2_xyz, fr3_office]
+  train_template: configs/final/tum/{scene}.yaml
+  downscale_factor: 1
+  prepared_directory: tum_rgbd/processed
+  legacy_prepared_root: datasets/tum_rgbd_local/processed
+  sequence_names:
+    fr1_desk: rgbd_dataset_freiburg1_desk
+    fr2_xyz: rgbd_dataset_freiburg2_xyz
+    fr3_office: rgbd_dataset_freiburg3_long_office_household

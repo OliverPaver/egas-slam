@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+EGAS_PROJECT=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+source "${EGAS_PROJECT}/scripts/desktop_env.sh"
+if [[ "${1:-}" == build ]]; then
+    shift
+    exec bash "${EGAS_PROJECT}/scripts/desktop_build.sh" "$@"
+elif [[ "${1:-}" == summary ]]; then
+    shift
+    exec "${EGAS_PYTHON}" "${EGAS_PROJECT}/scripts/desktop_summarize.py" "$@"
+fi
+exec "${EGAS_PYTHON}" "${EGAS_PROJECT}/scripts/desktop_run.py" "$@"

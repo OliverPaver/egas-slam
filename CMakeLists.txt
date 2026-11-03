@@ -5,6 +5,17 @@ set(OPENSPLAT_MAX_CUDA_COMPATIBILITY OFF CACHE BOOL "Build for maximum CUDA devi
 option(GPS_SLAM_BUILD_LEGACY_UI "Build the unused InfiniTAM GLUT UI implementation" OFF)
 option(GPS_SLAM_BUILD_REMOTE_VIEWER "Build the TCP remote viewer" ON)
 option(GPS_SLAM_CUDA_FAST_MATH "Use CUDA fast math (changes numerical results)" OFF)
+option(GPS_SLAM_PREFER_HOST_CXX_RUNTIME "Resolve the host C++ runtime before LibTorch's exported filesystem symbols" OFF)
+set(GPS_SLAM_HOST_CXX_RUNTIME_FIRST "")
+if(GPS_SLAM_PREFER_HOST_CXX_RUNTIME)
+    if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" OR NOT CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        message(FATAL_ERROR "GPS_SLAM_PREFER_HOST_CXX_RUNTIME currently supports GNU/Linux only")
+    endif()
+    # Some desktop LibTorch wheels export an incompatible remove_all() whose
+    # weak recursive-iterator dependency is absent from the host libstdc++.
+    # Keep the host runtime first even with the linker's --as-needed default.
+    set(GPS_SLAM_HOST_CXX_RUNTIME_FIRST "-Wl,--no-as-needed" stdc++ "-Wl,--as-needed")
+endif()
 include(cmake/TSDFCapacityProfiles.cmake)
 option(GPS_SLAM_BASIC_CAPACITY_INSTRUMENTATION "Compile added BasicEngine allocation and CSV diagnostics" ON)
 if(NOT GPS_SLAM_BASIC_CAPACITY_INSTRUMENTATION)
@@ -24,6 +35,7 @@ list(PREPEND CMAKE_PREFIX_PATH ${GPS_SLAM_LOCAL_PREFIXES})
 
 # Read version
 file(READ "VERSION" APP_VERSION)
+string(STRIP "${APP_VERSION}" APP_VERSION)
 
 # Read git commit
 set(GIT_REV "")
@@ -366,14 +378,20 @@ endif()
 
 #####################   slam trainer
 add_executable(slam_trainer slam_trainer.cpp)
-target_link_libraries(slam_trainer PRIVATE gps_slam_core)
+target_link_libraries(slam_trainer PRIVATE ${GPS_SLAM_HOST_CXX_RUNTIME_FIRST} gps_slam_core)
 target_compile_options(slam_trainer PRIVATE ${GPS_SLAM_TORCH_CXX_FLAGS})
+
+if(GPS_SLAM_PREFER_HOST_CXX_RUNTIME)
+    add_executable(desktop_filesystem_regression scripts/desktop_filesystem_regression.cpp)
+    target_link_libraries(desktop_filesystem_regression PRIVATE
+        ${GPS_SLAM_HOST_CXX_RUNTIME_FIRST} gps_slam_core ${CMAKE_DL_LIBS})
+endif()
 
 #####################   optional TCP remote viewer
 if(GPS_SLAM_BUILD_REMOTE_VIEWER)
     find_package(Boost REQUIRED COMPONENTS system)
     add_executable(remote_viewer remote_viewer.cpp)
-    target_link_libraries(remote_viewer PRIVATE gps_slam_core Boost::system)
+    target_link_libraries(remote_viewer PRIVATE ${GPS_SLAM_HOST_CXX_RUNTIME_FIRST} gps_slam_core Boost::system)
     target_compile_options(remote_viewer PRIVATE ${GPS_SLAM_TORCH_CXX_FLAGS})
 endif()
 

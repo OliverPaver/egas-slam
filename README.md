@@ -1,4 +1,25 @@
-# GPS-SLAM submaps for NVIDIA Jetson AGX Thor
+# EGAS-SLAM — local desktop development
+
+This checkout starts from the final Thor release at
+`c944954d7000d2c905975c784f30a99ff7f3ff04`, with a separate local desktop
+development branch. See [DESKTOP_SETUP.md](DESKTOP_SETUP.md) for this PC's build,
+run commands, validation results and the exact differences from the Thor setup.
+
+```bash
+cd /home/oliver/EGAS-SLAM
+source scripts/desktop_env.sh
+bash scripts/desktop_build.sh
+"$EGAS_PYTHON" scripts/desktop_run.py train --dataset replica --scene office0
+```
+
+Replica uses prepared 600 × 340 input; TUM retains 640 × 480. Each invocation
+creates a fresh local run under `~/egas_workspace/runs`. Existing implementations
+and final Thor configuration templates are preserved. All source, dependencies,
+inputs and outputs used by this checkout reside on the PC, not on the SanDisk.
+
+The original release documentation follows.
+
+## GPS-SLAM submaps for NVIDIA Jetson AGX Thor
 
 This repository contains the final implementation of a research fork of
 [GPS-SLAM](https://github.com/MisEty/GPS-SLAM). It combines RGB-D tracking and

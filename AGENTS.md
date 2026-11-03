@@ -1,5 +1,29 @@
 # Repository Guidelines
 
+## Current desktop development checkout
+
+This checkout is `/home/oliver/EGAS-SLAM`, based on final Thor/GitHub release
+`c944954d7000d2c905975c784f30a99ff7f3ff04`. Current work is authorised local
+development on an RTX 3070 (SM 86), not thesis revision or Thor deployment.
+Read `DESKTOP_SETUP.md` and `configs/desktop/README.md` before running experiments.
+
+- Build: `./egas build` (native GCC/CUDA and existing PyTorch).
+- Run: `./egas train --dataset replica --scene office0`; use unique run names.
+- Summarise: `./egas summary /home/oliver/egas_workspace/runs/<run>`.
+- Source and all execution/input/output must stay on local storage; the SanDisk
+  is a read-only transfer source for this setup.
+- Replica desktop inputs are physically 600x340 with matching intrinsics and
+  `downscale_factor: 1`. A reader-only downscale override does not resize the
+  frozen TSDF engine's calibration.
+- Keep the desktop host-C++-runtime link-order fix and its filesystem regression:
+  the current Torch wheel's filesystem symbol otherwise crashes on nonempty
+  recursive cleanup. Do not replace it with an algorithm/paging change.
+- Preserve immutable `configs/final/` templates and `SOURCE_MANIFEST.json` as
+  release provenance. New development settings belong in desktop/new presets.
+- New desktop measurements are distinct from the historical Thor benchmarks.
+
+The original Thor-specific commands below remain relevant to that target.
+
 ## Project Structure & Module Organization
 
 GPS-SLAM is a C++17/CUDA RGB-D SLAM system. Core interfaces live in `include/` and implementations in `src/`. SLAM orchestration and InfiniTAM adapters are under `slam/`; CUDA rasterization is under `gsplat/`. The bundled InfiniTAM dependency lives in `InfiniTAM/`. YAML experiments are in `configs/`, evaluation tools in `scripts/`, and batch workflows in `run/`.
