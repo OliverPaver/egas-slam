@@ -179,6 +179,15 @@ public:
 
     void SLAMTrainCams(SLAMGaussianModel &model, std::vector<Camera> &cams);
 
+    void captureDemoFrame(const Camera &cam, bool terminal = false, bool force = false);
+    void captureDemoTransform(int owner, const torch::Tensor &before,
+                              const torch::Tensor &after, const std::string &reason);
+    std::map<int, std::string> demo_mesh_files, demo_gaussian_files;
+    std::map<int, int> demo_mesh_frames;
+    int demo_last_owner = -1;
+    uint64_t demo_last_epoch_sum = 0;
+    int demo_transform_count = 0;
+
     void finalizeRuntimeDiagnostics();
 
     void localOptimize(SLAMGaussianModel &model, int iter_override = -1);

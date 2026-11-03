@@ -629,6 +629,10 @@ void SLAMPipeline::applySubmapGlobalToLocalTransform(int sdf_submap_id, const to
         throw std::runtime_error("Invalid SDF submap transform update tensor");
 
     torch::Tensor cpu_transform = global_to_local.detach().to(torch::kCPU).to(torch::kFloat32).contiguous();
+    if (config["demo_capture"] && config["demo_capture"]["enabled"].as<bool>(false))
+        captureDemoTransform(sdf_submap_id,
+            infiMatrix4ToTensor(tsdf_engine->getGlobalToLocal(sdf_submap_id)),
+            cpu_transform, reason);
     std::unique_ptr<ORUtils::Matrix4<float>> matrix(tensorToInfiMatrix4(cpu_transform));
     tsdf_engine->setGlobalToLocal(sdf_submap_id, *matrix);
 
@@ -10319,6 +10323,9 @@ void SLAMPipeline::SLAMTrainCams(SLAMGaussianModel &model, std::vector<Camera> &
     // TODO: 把3改成config里设置的gpu id
     for (int i = 0; i < total_frame_num; i++)
     {
+        // At the next frame boundary, all paths (including early continues)
+        // have completed the preceding frame. The observer never advances SLAM.
+        if (i > 0) captureDemoFrame(cams[i - 1]);
 #ifdef LOG_PIPELINE_TIME
         clock_gettime(CLOCK_MONOTONIC, &frameWall_start);
         clock_gettime(CLOCK_MONOTONIC, &perFrame_start);
@@ -10829,6 +10836,7 @@ void SLAMPipeline::SLAMTrainCams(SLAMGaussianModel &model, std::vector<Camera> &
 #endif
         last_dataset_frame_id = curr_dataset_frame_id;
     }
+    if (!cams.empty()) captureDemoFrame(cams.back(), false, true);
     if (export_online_end_trajectory && hasCorrectedPosesAvailable())
     {
         // Export time is subtracted below. Complete outstanding algorithmic
@@ -10904,6 +10912,7 @@ void SLAMPipeline::SLAMTrainCams(SLAMGaussianModel &model, std::vector<Camera> &
         }
     }
     tsdf_engine->synchronizePaging();
+    if (!cams.empty()) captureDemoFrame(cams.back(), true, true);
     const cudaError_t completion_status = cudaDeviceSynchronize();
     if (completion_status != cudaSuccess)
         throw std::runtime_error(std::string("SLAM completion CUDA error: ") + cudaGetErrorString(completion_status));

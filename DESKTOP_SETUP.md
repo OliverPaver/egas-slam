@@ -125,6 +125,11 @@ every-frame real-time deadline.
 
 ## Validation record
 
+The optional full-resolution visualisation workflow is documented in
+[DEMO_GUIDE.md](DEMO_GUIDE.md). It adds a read-only capture observer and a local
+browser viewer. Normal training keeps capture disabled and Replica at half
+resolution unless `--resolution full` is selected explicitly.
+
 The machine-readable checks and measured scene results are retained under
 `/home/oliver/egas_workspace/validation`. The
 [desktop completion report](DESKTOP_VALIDATION_2026-11-03.md) records the final

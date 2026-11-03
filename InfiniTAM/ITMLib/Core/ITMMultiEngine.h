@@ -231,6 +231,11 @@ namespace ITMLib
 
 		/// Extracts a mesh from the current scene and saves it to the model file specified by the file name
 		void SaveSceneToMesh(const char *fileName);
+		// Optional demonstration observer: reads resident maps only. Never pages,
+		// changes a map transform, or touches tracking/free-view render buffers.
+		bool CaptureResidentMesh(int localMapId, const std::string &filename);
+		bool CaptureResidentView(int localMapId, const Matrix4f &cameraToLocal,
+			ITMIntrinsics &intrinsics, ITMUChar4Image &colour, ITMFloat4Image &vertices);
 
 		/// save and load the full scene and relocaliser (if any) to/from file
 		void SaveToFile();

@@ -1,8 +1,16 @@
 # Desktop development profiles
 
 These overlays use the latest final EGAS-SLAM settings from `configs/final`.
-They set Replica to **600 × 340** and retain TUM at **640 × 480**. This is a
+They default to Replica at **600 × 340** and retain TUM at **640 × 480**. This is a
 new desktop environment, not a rerun of the Thor timing benchmark.
+
+`train --resolution full` selects native **1200 × 680** Replica images and
+intrinsics `[600, 600, 599.5, 339.5]`, with `downscale_factor: 1`. Prepared local
+full-resolution data must exist or be supplied with `--input-dir`. A complete
+room0 run has been tested on this RTX 3070; this is not a guarantee for every
+scene or larger future map. `--capture-every N` enables the optional visual
+observer described in [DEMO_GUIDE.md](../../DEMO_GUIDE.md). Capture adds substantial
+work and its timings must not be used as benchmark rates.
 
 Office0 and room0 are already prepared locally. From the repository root:
 
@@ -59,8 +67,8 @@ without downloading or touching the external backup:
 Preparation writes `$HOME/egas_workspace/data/replica_half/SCENE` and refuses
 to overwrite it. Newly required full-resolution intermediates are kept in
 `data/replica_prepared`. Use `--raw-root` for a different local raw Replica root or
-training's `--input-dir` for a different local prepared half-resolution Replica
-scene (full-resolution for TUM).
+training's `--input-dir` for a different local prepared scene matching the
+selected Replica resolution (native resolution for TUM).
 
 Replica uses physically resized images, calibration `[300, 300, 299.75, 169.75]`,
 image shape `[600, 340]` and downscale factor `1`. This keeps both the TSDF tracker

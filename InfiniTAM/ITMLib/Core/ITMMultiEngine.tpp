@@ -22,6 +22,9 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <unordered_map>
+#include <unordered_set>
+#include <array>
 
 using namespace ITMLib;
 
@@ -1555,4 +1558,104 @@ void ITMMultiEngine<TVoxel, TIndex>::GetImage(ITMUChar4Image *out, GetImageType 
 	case ITMMultiEngine::InfiniTAM_IMAGE_UNKNOWN:
 		break;
 	};
+}
+
+// Opt-in visualisation export. Geometry is kept in its owner-local coordinates.
+// Separate scratch resources avoid changing the tracker or paging order.
+template <typename TVoxel, typename TIndex>
+bool ITMMultiEngine<TVoxel, TIndex>::CaptureResidentMesh(int id, const std::string &filename)
+{
+    if (!mapManager->isLocalMapResident(id)) return false;
+    auto *local = mapManager->getLocalMap(id);
+    std::unique_ptr<ITMMeshingEngine<TVoxel, TIndex>> mesher(
+        ITMMeshingEngineFactory::MakeMeshingEngine<TVoxel, TIndex>(settings->deviceType));
+    if (!mesher) throw std::runtime_error("Demo meshing engine unavailable");
+    const uint64_t maximum = uint64_t(std::max(1, mapManager->getLocalMapSize(id))) * 512;
+    uint64_t capacity = std::min<uint64_t>(maximum, 262144);
+    std::unique_ptr<ITMMesh> mesh;
+    while (true)
+    {
+        mesh.reset(new ITMMesh(settings->GetMemoryType(), uint(capacity)));
+        mesher->MeshScene(mesh.get(), local->scene);
+        if (mesh->noTotalTriangles < mesh->noMaxTriangles - 1) break;
+        if (capacity >= maximum) throw std::runtime_error("Demo mesh capacity exhausted");
+        capacity = std::min(maximum, capacity * 2);
+    }
+    ORUtils::MemoryBlock<ITMMesh::Triangle> cpu(mesh->noMaxTriangles, MEMORYDEVICE_CPU);
+    cpu.SetFrom(mesh->triangles, settings->GetMemoryType() == MEMORYDEVICE_CUDA
+        ? ORUtils::MemoryBlock<ITMMesh::Triangle>::CUDA_TO_CPU
+        : ORUtils::MemoryBlock<ITMMesh::Triangle>::CPU_TO_CPU);
+    // Display-only vertex clustering at 1 cm. The native TSDF and hybrid render
+    // remain untouched. Indexed surfaces keep live/replay storage manageable.
+    constexpr float cell = 0.01f;
+    struct Hash3 {
+        size_t operator()(const std::array<int,3> &a) const {
+            size_t h=std::hash<int>{}(a[0]);
+            h ^= std::hash<int>{}(a[1]) + 0x9e3779b9 + (h<<6) + (h>>2);
+            return h ^ (std::hash<int>{}(a[2]) + 0x9e3779b9 + (h<<6) + (h>>2));
+        }
+    };
+    std::unordered_map<std::array<int,3>, uint32_t, Hash3> lookup;
+    std::unordered_set<std::array<int,3>, Hash3> faces;
+    std::vector<std::array<double,7>> sums;
+    std::vector<uint32_t> indices;
+    const auto *tri = cpu.GetData(MEMORYDEVICE_CPU);
+    for (uint i = 0; i < mesh->noTotalTriangles; ++i)
+    {
+        const Vector3f points[] = {tri[i].p0, tri[i].p1, tri[i].p2};
+        const Vector3f colours[] = {tri[i].c0, tri[i].c1, tri[i].c2};
+        std::array<int,3> face;
+        for (int j = 0; j < 3; ++j)
+        {
+            const float data[] = {points[j].x, points[j].y, points[j].z,
+                                  colours[j].r, colours[j].g, colours[j].b};
+            for (float v : data) if (!std::isfinite(v))
+                throw std::runtime_error("Non-finite demo mesh data");
+            const std::array<int,3> key = {int(std::floor(data[0]/cell)),
+                int(std::floor(data[1]/cell)), int(std::floor(data[2]/cell))};
+            auto inserted = lookup.emplace(key, uint32_t(sums.size()));
+            if (inserted.second) sums.push_back({0,0,0,0,0,0,0});
+            const uint32_t id = inserted.first->second;
+            for (int k=0;k<6;++k) sums[id][k] += data[k];
+            sums[id][6] += 1;
+            face[j] = int(id);
+        }
+        if (face[0]==face[1] || face[1]==face[2] || face[0]==face[2]) continue;
+        auto sorted = face;
+        std::sort(sorted.begin(), sorted.end());
+        if (faces.insert(sorted).second)
+            for (int v : face) indices.push_back(uint32_t(v));
+    }
+    std::ofstream out(filename, std::ios::binary);
+    const uint32_t header[] = {0x3148534d, uint32_t(sums.size()), uint32_t(indices.size())};
+    out.write(reinterpret_cast<const char *>(header), sizeof(header));
+    out.write(reinterpret_cast<const char *>(&cell), sizeof(cell));
+    for (const auto &v : sums)
+    {
+        float row[6];
+        for (int k=0;k<6;++k) row[k] = float(v[k]/v[6]);
+        out.write(reinterpret_cast<const char *>(row), sizeof(row));
+    }
+    out.write(reinterpret_cast<const char *>(indices.data()), indices.size()*sizeof(uint32_t));
+    if (!out) throw std::runtime_error("Cannot write demo mesh " + filename);
+    return true;
+}
+
+template <typename TVoxel, typename TIndex>
+bool ITMMultiEngine<TVoxel, TIndex>::CaptureResidentView(int id, const Matrix4f &c2l,
+    ITMIntrinsics &intrinsics, ITMUChar4Image &colour, ITMFloat4Image &vertices)
+{
+    if (!mapManager->isLocalMapResident(id)) return false;
+    auto *local = mapManager->getLocalMap(id);
+    std::unique_ptr<ITMRenderState> state(
+        visualisationEngine->CreateRenderState(local->scene, trackedImageSize));
+    ORUtils::SE3Pose pose;
+    pose.SetInvM(c2l);
+    visualisationEngine->FindVisibleBlocks(local->scene, &pose, &intrinsics, state.get());
+    visualisationEngine->CreateExpectedDepths(local->scene, &pose, &intrinsics, state.get());
+    visualisationEngine->RenderImage(local->scene, &pose, &intrinsics, state.get(),
+        state->raycastImage, IITMVisualisationEngine::RENDER_COLOUR_FROM_VOLUME);
+    colour.SetFrom(state->raycastImage, ORUtils::MemoryBlock<Vector4u>::CUDA_TO_CUDA);
+    vertices.SetFrom(state->raycastResult, ORUtils::MemoryBlock<Vector4f>::CUDA_TO_CUDA);
+    return true;
 }

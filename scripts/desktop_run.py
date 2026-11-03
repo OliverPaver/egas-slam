@@ -248,6 +248,9 @@ def execute(args: argparse.Namespace, config: dict, record: Path,
                    'Half-resolution desktop rates are not Thor benchmark rates. '
                    'Asynchronous one-second process/device telemetry remains enabled; '
                    'its overhead has not been independently bounded.')
+    if config['PIPE'].get('demo_capture', {}).get('enabled', False):
+        receipt['measurement_note'] += (' Demo capture adds GPU meshing, rendering, '
+            'synchronisation and disk IO. These timings are not benchmark throughput.')
     atomic_json(record / 'run.json', receipt)
     print(f"Configuration: {config_path}\nRun record: {record}\n"
           f"Map workspace: {config['workspace_dir']}\n"
@@ -345,6 +348,11 @@ def prepare(args: argparse.Namespace, root: Path) -> int:
 
 def train(args: argparse.Namespace, root: Path) -> int:
     profile = select_profile(args.dataset, args.scene)
+    if args.resolution == 'full' and args.dataset == 'replica':
+        profile = copy.deepcopy(profile)
+        profile.update(image_shape=[1200, 680], intrinsics=[600, 600, 599.5, 339.5],
+                       prepared_directory='replica_prepared',
+                       legacy_prepared_root=profile['legacy_full_root'])
     template = PROJECT / profile['train_template'].format(scene=args.scene)
     config = yaml.safe_load(template.read_text())
     config['READER']['input_dir'] = str(find_input(profile, args.scene, root, args.input_dir))
@@ -359,6 +367,11 @@ def train(args: argparse.Namespace, root: Path) -> int:
         config['READER']['end_frame'] = config['READER']['start_frame'] + (args.frames - 1) * config['READER']['frame_step']
     if args.no_save:
         config['PIPE']['save_after_train'] = False
+    if args.capture_every:
+        if args.capture_every < 1:
+            raise ValueError('--capture-every must be positive')
+        config['PIPE']['demo_capture'] = dict(enabled=True, interval=args.capture_every,
+                                             scene=args.scene, dataset=args.dataset)
     # Validate all inputs before reserving a new experiment directory.
     validate_input(config)
     label = args.name or f"{args.dataset}_{args.scene}_{stamp()}_{uuid.uuid4().hex[:6]}"
@@ -427,7 +440,11 @@ def main() -> int:
         if name == 'train':
             p.add_argument('--dataset', choices=['replica', 'tum'], required=True)
             p.add_argument('--scene', required=True)
-            p.add_argument('--input-dir', help='Prepared local scene: half-resolution Replica or full-resolution TUM')
+            p.add_argument('--input-dir', help='Prepared local scene matching --resolution; TUM always uses native resolution')
+            p.add_argument('--resolution', choices=['half', 'full'], default='half',
+                           help='Replica processing resolution; TUM always uses native resolution')
+            p.add_argument('--capture-every', type=int, default=0,
+                           help='Enable demonstration capture every N frames; extra work is not benchmark timing')
             p.add_argument('--frames', type=int, help='First N frames; omit for complete scene')
             p.add_argument('--no-save', action='store_true', help='Skip large map export; no later rendering of this run')
             p.add_argument('--name', help='Unique output name; an existing name is always refused')

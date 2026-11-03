@@ -8,5 +8,11 @@ if [[ "${1:-}" == build ]]; then
 elif [[ "${1:-}" == summary ]]; then
     shift
     exec "${EGAS_PYTHON}" "${EGAS_PROJECT}/scripts/desktop_summarize.py" "$@"
+elif [[ "${1:-}" == viewer ]]; then
+    shift
+    exec "${EGAS_PYTHON}" "${EGAS_PROJECT}/scripts/demo_viewer.py" "$@"
+elif [[ "${1:-}" == demo-export ]]; then
+    shift
+    exec "${EGAS_PYTHON}" "${EGAS_PROJECT}/scripts/demo_export.py" "$@"
 fi
 exec "${EGAS_PYTHON}" "${EGAS_PROJECT}/scripts/desktop_run.py" "$@"

@@ -12,10 +12,14 @@ bash scripts/desktop_build.sh
 "$EGAS_PYTHON" scripts/desktop_run.py train --dataset replica --scene office0
 ```
 
-Replica uses prepared 600 × 340 input; TUM retains 640 × 480. Each invocation
+Replica defaults to prepared 600 × 340 input; `--resolution full` selects native
+1200 × 680 input and calibration. TUM retains 640 × 480. Each invocation
 creates a fresh local run under `~/egas_workspace/runs`. Existing implementations
 and final Thor configuration templates are preserved. All source, dependencies,
 inputs and outputs used by this checkout reside on the PC, not on the SanDisk.
+
+For the full-resolution demonstration, interview video, GitHub preview and
+interactive four-panel viewer, see [DEMO_GUIDE.md](DEMO_GUIDE.md).
 
 The original release documentation follows.
 
