@@ -38,7 +38,9 @@ incorrectly requiring the raw learned parameters to be unit quaternions.
 
 `build_desktop/desktop_filesystem_regression` still passed both recursive-removal
 overloads with the host `libstdc++.so.6` provider. Python syntax checks and
-`git diff --check` passed.
+`git diff HEAD^ HEAD --check -- . ':!viewer/vendor'` passed for project-owned
+changes. The unmodified Three.js vendor file retains one upstream mixed-indent
+whitespace warning; its source was preserved verbatim.
 
 The captures are visualisation evidence, not timing or accuracy benchmarks.
 Capture adds meshing, native rendering, transfers, synchronisation and disk IO.
