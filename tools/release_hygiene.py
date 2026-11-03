@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check source-only release hygiene and the complete source-file manifest."""
+"""Check working-tree hygiene and source identity in the working tree or a Git ref."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 MAX_FILE_BYTES = 50 * 1024 * 1024
+ALLOWED_EXECUTABLES = {"egas", "scripts/desktop_run.py"}
 PROTECTED_PATHS = (
     "slam",
     "src",
@@ -197,12 +198,12 @@ def hygiene() -> None:
     for line in modes:
         metadata, relative = line.split("\t", 1)
         mode = metadata.split()[0]
-        if mode == "100755" and not relative.endswith(".sh"):
+        if mode == "100755" and not relative.endswith(".sh") and relative not in ALLOWED_EXECUTABLES:
             errors.append(f"unexpected executable mode: {relative}")
 
     if errors:
         raise CheckFailure("release hygiene failed:\n- " + "\n- ".join(sorted(set(errors))))
-    print(f"release hygiene passed ({len(paths)} files checked)")
+    print(f"working-tree release hygiene passed ({len(paths)} files checked)")
 
 
 def tree_digest(ref: str) -> str:
@@ -220,7 +221,73 @@ def algorithm_equivalence(tag: str) -> None:
     print(f"algorithm equivalence passed: tag={tag} digest={tree_digest(tag)}")
 
 
-def source_manifest(path: str) -> None:
+def git_blob_identities(object_ids: set[str]) -> dict[str, tuple[int, str]]:
+    """Hash raw Git blobs in one batch, without checkout filters or per-file Git calls."""
+    requested = sorted(object_ids)
+    completed = subprocess.run(
+        ["git", "cat-file", "--batch"],
+        cwd=ROOT,
+        input="".join(object_id + "\n" for object_id in requested).encode("ascii"),
+        capture_output=True,
+        check=False,
+    )
+    if completed.returncode:
+        raise CheckFailure(completed.stderr.decode("utf-8", errors="replace").strip())
+    output = completed.stdout
+    identities = {}
+    offset = 0
+    for object_id in requested:
+        header_end = output.find(b"\n", offset)
+        header = output[offset:header_end].split()
+        if header_end < 0 or len(header) != 3 or header[:2] != [object_id.encode("ascii"), b"blob"]:
+            raise CheckFailure(f"cannot read Git blob: {object_id}")
+        size = int(header[2])
+        start = header_end + 1
+        end = start + size
+        if end >= len(output) or output[end:end + 1] != b"\n":
+            raise CheckFailure(f"incomplete Git blob: {object_id}")
+        digest = hashlib.sha256(memoryview(output)[start:end]).hexdigest()
+        identities[object_id] = (size, digest)
+        offset = end + 1
+    if offset != len(output):
+        raise CheckFailure("unexpected output after Git blob batch")
+    return identities
+
+
+def source_manifest_at_ref(records: dict, relative_manifest: str, ref: str) -> None:
+    """Verify a manifest against the complete tracked file set of one commit."""
+    commit = git("rev-parse", "--verify", "--end-of-options", f"{ref}^{{commit}}").strip()
+    entries = {}
+    for entry in git("ls-tree", "-r", "-z", "--full-tree", commit).split("\0"):
+        if not entry:
+            continue
+        metadata, name = entry.split("\t", 1)
+        mode, kind, object_id = metadata.split()
+        entries[name] = (mode, kind, object_id)
+    manifest_entry = entries.pop(relative_manifest, None)
+    if manifest_entry is None or manifest_entry[:2] != ("100644", "blob"):
+        raise CheckFailure(f"source manifest is not a regular tracked file at {commit}: {relative_manifest}")
+    if set(records) != set(entries):
+        raise CheckFailure(f"source-manifest file-set mismatch at {commit}: "
+                           f"missing={sorted(set(records) - set(entries))}; "
+                           f"added={sorted(set(entries) - set(records))}")
+    unsafe = [name for name, (mode, kind, _) in entries.items()
+              if mode not in {"100644", "100755"} or kind != "blob"]
+    if unsafe:
+        raise CheckFailure("source-manifest verification failed:\n- "
+                           + "\n- ".join(name + ": not a regular Git blob" for name in unsafe))
+    identities = git_blob_identities({entry[2] for entry in entries.values()})
+    errors = []
+    for name, record in records.items():
+        size, digest = identities[entries[name][2]]
+        if size != record["bytes"] or digest != record["sha256"]:
+            errors.append(name + ": contents changed")
+    if errors:
+        raise CheckFailure(f"source-manifest verification failed at {commit}:\n- " + "\n- ".join(errors))
+    print(f"Git source identity passed: ref={commit}; {relative_manifest}; {len(records)} files")
+
+
+def source_manifest(path: str, ref: str | None = None) -> None:
     """Verify every shipped file except the manifest's unavoidable self entry."""
     manifest_path = (ROOT / path).resolve()
     relative_manifest = manifest_path.relative_to(ROOT).as_posix()
@@ -229,6 +296,9 @@ def source_manifest(path: str) -> None:
     if manifest.get("schema_version") != 1:
         raise CheckFailure("unsupported source-manifest schema")
     records = manifest["files"]
+    if ref is not None:
+        source_manifest_at_ref(records, relative_manifest, ref)
+        return
     actual = {p.relative_to(ROOT).as_posix(): p for p in candidate_paths()
               if p.is_file() and p != manifest_path}
     if set(records) != set(actual):
@@ -246,22 +316,28 @@ def source_manifest(path: str) -> None:
             errors.append(name + ": contents changed")
     if errors:
         raise CheckFailure("source-manifest verification failed:\n- " + "\n- ".join(errors))
-    print(f"complete source identity passed: {relative_manifest}; {len(records)} files")
+    print(f"working-tree source identity passed: {relative_manifest}; {len(records)} files")
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--algorithm-equivalence", metavar="TAG")
     parser.add_argument("--source-manifest", metavar="JSON")
+    parser.add_argument(
+        "--source-manifest-ref", metavar="REF",
+        help="verify --source-manifest against this Git commit; hygiene still checks the working tree",
+    )
     parser.add_argument("--skip-hygiene", action="store_true")
     args = parser.parse_args()
+    if args.source_manifest_ref is not None and not args.source_manifest:
+        parser.error("--source-manifest-ref requires --source-manifest")
     try:
         if not args.skip_hygiene:
             hygiene()
         if args.algorithm_equivalence:
             algorithm_equivalence(args.algorithm_equivalence)
         if args.source_manifest:
-            source_manifest(args.source_manifest)
+            source_manifest(args.source_manifest, args.source_manifest_ref)
     except CheckFailure as exc:
         print(exc, file=sys.stderr)
         return 1

@@ -24,7 +24,7 @@ Commands:
   baseline-build
                Build the capacity-augmented original control (legacy_pool_2m) in build_original/.
   regressions  Run the lightweight policy, metric, and pose-graph regressions.
-  source-check Verify this release against SOURCE_MANIFEST.json (CPU only).
+  source-check Check current hygiene and the immutable Thor source manifest (CPU only).
   shell        Open an interactive development shell.
   run CMD...   Run an arbitrary command in the development image.
   telemetry-run CMD...
@@ -48,7 +48,9 @@ if [[ "${ACTION}" == "help" || "${ACTION}" == "--help" || "${ACTION}" == "-h" ]]
 fi
 
 if [[ "${ACTION}" == "source-check" ]]; then
-    exec python3 "${PROJECT_ROOT}/tools/release_hygiene.py" --source-manifest SOURCE_MANIFEST.json
+    exec python3 "${PROJECT_ROOT}/tools/release_hygiene.py" \
+        --source-manifest SOURCE_MANIFEST.json \
+        --source-manifest-ref c944954d7000d2c905975c784f30a99ff7f3ff04
 fi
 
 if ! command -v "${ENGINE}" >/dev/null 2>&1; then

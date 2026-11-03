@@ -42,8 +42,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y shellcheck
 
-      - name: Check release hygiene and complete source identity
-        run: python tools/release_hygiene.py --source-manifest SOURCE_MANIFEST.json
+      - name: Check current working-tree release hygiene
+        run: python tools/release_hygiene.py
+
+      - name: Verify immutable Thor release source identity
+        run: >-
+          python tools/release_hygiene.py --skip-hygiene
+          --source-manifest SOURCE_MANIFEST.json
+          --source-manifest-ref c944954d7000d2c905975c784f30a99ff7f3ff04
 
       - name: Parse YAML and CFF
         run: |

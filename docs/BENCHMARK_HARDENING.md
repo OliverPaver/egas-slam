@@ -6,10 +6,11 @@ project a replacement for the separately retained benchmark campaign harness.
 
 ## Source and run identity
 
-Verify [SOURCE_MANIFEST.json](../SOURCE_MANIFEST.json) with the release hygiene
-tool before building. Keep the exact configuration, source identity, compiler
+Check current source hygiene and verify the historical Thor manifest using
+the commands in [Source correspondence](../RELEASE_EQUIVALENCE.md). Keep the exact configuration, source identity, compiler
 options, dependency/container identity and executable hash with new outputs.
-The manifest identifies source; it does not certify a different binary or
+The manifest identifies the frozen Thor source, not later desktop commits;
+it does not certify a different binary or
 reproduce the timing of a prior build.
 
 Record runtime environment overrides as well as YAML. CUDA precision settings,
