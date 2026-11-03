@@ -197,3 +197,61 @@ The original capture checks are recorded in
 [DEMO_VALIDATION_2026-11-03.md](DEMO_VALIDATION_2026-11-03.md). The revised
 presentation and media checks are documented in
 [DEMO_REVISION_V2_2026-11-03.md](DEMO_REVISION_V2_2026-11-03.md).
+
+## Current GitHub film: continuous replay
+
+The GitHub-specific third revision replaces the earlier preview's rapid
+time compression and editorial holds with a **65.2-second** continuous edit.
+It has its own layout and exporter; the 144-second interview film and
+interactive four-panel viewer remain available unchanged.
+
+The film first shows Replica room0 growing through three submap handoffs, then
+uses the real TUM office sequence to explain a revisit. An earlier desk image
+appears beside the moving camera image, making the shared objects recognisable.
+The ending compares the same retained local geometry and historical camera
+samples before and after the actual loop correction. The corrected view also
+shows the previous path as a dashed orange line. A slowly moving inspection
+camera keeps this comparison active; the submap transforms are not interpolated.
+
+Prepare the original RGB frames, start the local presentation server, then
+export:
+
+```bash
+cd /home/oliver/EGAS-SLAM
+source scripts/desktop_env.sh
+"$EGAS_PYTHON" scripts/github_export.py --prepare-only
+./egas viewer --port 8766 \
+  --presentation /home/oliver/egas_workspace/presentation/github_v3
+```
+
+In a second terminal:
+
+```bash
+cd /home/oliver/EGAS-SLAM
+source scripts/desktop_env.sh
+"$EGAS_PYTHON" scripts/github_export.py
+```
+
+`--draft` exports a separate 10-fps review copy. The default export is 1920 ×
+1080 at 30 fps, accompanied by a 960 × 540, 10-fps GIF and a 1080p poster.
+Outputs and their validation records are written to
+`/home/oliver/egas_workspace/deliverables/EGAS_SLAM_GitHub_v3_2026-11-03/`.
+The prepared presentation contains hardlinks to local original RGB files, or
+copies when crossing local filesystems, plus `story.json` and source hashes.
+Treat these prepared images as read-only: editing a hardlink edits its source.
+No capture directory is changed.
+
+Original RGB frames advance continuously; the map and native hybrid image
+advance at their recorded capture intervals. Their frame labels make that
+sampling visible. Replica frames 600–1999 play at a chosen presentation pace of
+30 source frames per second. TUM frames 1800–2040 follow their original sensor
+timestamps, resampled onto the output video frames. Neither rate measures SLAM
+throughput. This is a replay of two completed estimated-pose runs, not a live
+benchmark.
+
+The exporter streams screenshots into resumable video segments and checks the
+complete encoded files with FFprobe and FFmpeg. Cache identity covers native
+captures, original RGB inputs and presentation source. See
+[GITHUB_DEMO_V3_2026-11-03.md](GITHUB_DEMO_V3_2026-11-03.md) for the exact edit,
+correction evidence and files. The original `demo-export` workflow above still
+reproduces the earlier interview/preview pair.

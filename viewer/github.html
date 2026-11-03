@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>EGAS-SLAM — project film</title><link rel="stylesheet" href="github.css"><script type="importmap">{"imports":{"three":"/vendor/three.module.js"}}</script></head>
+<body><div id="stage">
+<header><div class="brand">EGAS<span>—</span>SLAM</div><div class="tagline">Detailed reconstruction.<br><strong>Local maps. Global correction.</strong></div><div class="author">OLIVER PAVER<br><span>University of Manchester</span></div></header>
+<nav><div data-step="mapping"><b>01</b> BUILD LOCAL MAPS</div><div data-step="revisit"><b>02</b> RECOGNISE A REVISIT</div><div data-step="comparison"><b>03</b> CORRECT THE MAP</div></nav>
+<div class="intro"><h1 id="headline"></h1><span id="dataset"></span></div>
+<main>
+<section class="phase" id="mapping">
+ <article class="panel primary"><div class="panelhead"><h2>The reconstructed scene</h2><p>Geometry and appearance built from colour + depth</p></div><div id="map" class="view"></div><div class="note"><i class="dot teal"></i>Camera path <span id="mapcount"></span></div></article>
+ <div class="side"><article class="panel images"><div class="imagepair"><figure><img id="rgb"><figcaption>CAMERA INPUT <small id="rgbframe"></small></figcaption></figure><figure><img id="hybrid"><figcaption>HYBRID RECONSTRUCTION <small id="hybridframe"></small></figcaption></figure></div></article>
+ <article class="panel locals"><div class="panelhead"><h2>Overlapping submaps</h2><p>Each stores geometry + Gaussian appearance</p></div><div id="local" class="view"><div id="localnames"></div></div><div class="note" id="localnote"></div></article></div>
+</section>
+<section class="phase" id="revisit">
+ <div class="revisit-images"><article class="panel"><div class="panelhead"><h2>Earlier visit</h2><p>Stored view from submap 0</p></div><img id="reference"><div class="note">The same desk, toy aeroplane, plates and bottles</div></article>
+ <div class="match"><span>↔</span><strong id="matchstate">LOOKING FOR<br>A MATCH</strong></div>
+ <article class="panel"><div class="panelhead"><h2>Current camera</h2><p id="revisitstatus">Returning to the desk in submap 18</p></div><img id="current"><div class="note" id="revisitframe"></div></article></div>
+ <article class="panel revisit-map"><div class="panelhead"><h2 id="revisitMapTitle">A return to a mapped place</h2><p id="revisitMapNote">The current view is compared with earlier views.</p></div><div id="returnmap" class="view"></div><div class="note"><i class="dot teal"></i>Camera path <span class="right"><span id="edgelegend"></span></span></div></article>
+</section>
+<section class="phase" id="comparison">
+ <article class="panel before"><div class="panelhead"><h2>Before loop closure</h2><p>Earlier submap placements and camera path</p></div><div id="before" class="view"></div><div class="note"><i class="dot orange"></i>Before correction</div></article>
+ <article class="panel after"><div class="panelhead"><h2>After loop closure</h2><p>Updated submap placements and camera path</p></div><div id="after" class="view"></div><div class="note"><i class="dot teal"></i>Corrected path <span class="right">Dashed orange: previous path</span></div></article>
+ <div class="comparison-explainer"><strong>Local maps are repositioned as rigid pieces.</strong><span>Geometry and Gaussian detail move together. Their local contents stay intact.</span></div>
+</section>
+</main>
+<footer><span id="footleft"></span><span id="scope"></span></footer><div class="progress"><div id="progress"></div></div>
+<div id="error" hidden></div></div><script type="module" src="github.js"></script></body></html>

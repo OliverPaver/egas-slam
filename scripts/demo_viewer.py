@@ -20,7 +20,7 @@ def read_frames(root):
             except json.JSONDecodeError: continue # writer may be between append and flush
     return result
 
-def serve(runs, port=8765, open_browser=False):
+def serve(runs, port=8765, open_browser=False, presentation=None):
     roots={}
     for value in runs:
         p=Path(value).expanduser().resolve()
@@ -28,6 +28,13 @@ def serve(runs, port=8765, open_browser=False):
             raise ValueError('Use local capture storage')
         root=p if p.name=='demo' else p/'map/demo'
         roots[p.parent.parent.name if p.name=='demo' else p.name]=root
+    presentation_root=None
+    if presentation is not None:
+        presentation_root=Path(presentation).expanduser().resolve()
+        if any(presentation_root.is_relative_to(x) for x in (Path('/media'),Path('/mnt'),Path('/run/media'))):
+            raise ValueError('Use local presentation storage')
+        if not presentation_root.is_dir():
+            raise ValueError('Presentation directory does not exist')
     class Handler(SimpleHTTPRequestHandler):
         def log_message(self,*args): pass
         def do_GET(self):
@@ -38,7 +45,11 @@ def serve(runs, port=8765, open_browser=False):
                 key=parse_qs(url.query).get('run',[''])[0]
                 if key not in roots:self.send_error(404);return
                 self.send_json(read_frames(roots[key]));return
-            if url.path.startswith('/data/'):
+            if url.path=='/presentation' or url.path.startswith('/presentation/'):
+                if presentation_root is None:self.send_error(404);return
+                base=presentation_root
+                target=(base/unquote(url.path).removeprefix('/presentation/')).resolve()
+            elif url.path.startswith('/data/'):
                 parts=unquote(url.path).split('/',3)
                 if len(parts)!=4 or parts[2] not in roots:self.send_error(404);return
                 base=roots[parts[2]];target=(base/parts[3]).resolve()
@@ -72,8 +83,9 @@ if __name__=='__main__':
     p.add_argument('runs',nargs='*',help='Local capture runs; defaults to the prepared room0 and office demonstrations')
     p.add_argument('--port',type=int,default=8765)
     p.add_argument('--open',action='store_true')
+    p.add_argument('--presentation',type=Path,help='Optional local directory served read-only under /presentation/')
     a=p.parse_args()
     if not a.runs:
         root=Path.home()/'egas_workspace/runs'
         a.runs=[root/'demo_replica_room0_full',root/'demo_tum_office']
-    serve(a.runs,a.port,a.open)
+    serve(a.runs,a.port,a.open,presentation=a.presentation)
