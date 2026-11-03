@@ -258,8 +258,7 @@ def execute(args: argparse.Namespace, config: dict, record: Path,
     if args.dry_run:
         print('Configuration validated; --dry-run did not start SLAM.')
         return 0
-    # The root-owned environment wrapper resolves desktop Torch runtime libraries.
-    # Source scripts/desktop_env.sh before invoking this script (see README).
+    # Use the numerical environment recorded above for the native process.
     start = time.monotonic()
     receipt.update(status='running', started_utc=dt.datetime.now(dt.timezone.utc).isoformat())
     atomic_json(record / 'run.json', receipt)
@@ -304,7 +303,10 @@ def execute(args: argparse.Namespace, config: dict, record: Path,
 
 def prepare(args: argparse.Namespace, root: Path) -> int:
     profile = select_profile('replica', args.scene)
-    raw = local_path(args.raw_root or Path.home() / profile['legacy_raw_root'])
+    raw_candidates = [root / 'data' / 'Replica_raw',
+                      Path.home() / profile['legacy_raw_root']]
+    raw = local_path(args.raw_root or next(
+        (path for path in raw_candidates if (path / args.scene).is_dir()), raw_candidates[0]))
     full_target = workspace_path(root, 'data', 'replica_prepared')
     full_candidates = [full_target / args.scene,
                        Path.home() / profile['legacy_full_root'] / args.scene]
@@ -433,7 +435,9 @@ def main() -> int:
     sub = parser.add_subparsers(dest='command', required=True)
     for name in ('train', 'eval', 'prepare'):
         p = sub.add_parser(name)
-        p.add_argument('--workspace-root', default=str(Path.home() / 'egas_workspace'))
+        p.add_argument('--workspace-root',
+                       default=os.environ.get('EGAS_WORKSPACE_ROOT', str(Path.home() / 'egas_workspace')),
+                       help='Data/run root; default EGAS_WORKSPACE_ROOT or ~/egas_workspace')
         if name != 'prepare':
             p.add_argument('--binary', help='Default: build_desktop/slam_trainer')
             p.add_argument('--dry-run', action='store_true', help='Validate and save configuration without running SLAM')
@@ -453,7 +457,8 @@ def main() -> int:
             p.add_argument('--views', type=int, default=20, help='Uniform observed views; default 20, 0 means all')
         else:
             p.add_argument('--scene', required=True)
-            p.add_argument('--raw-root', help='Local raw Replica root; default existing GPS_SLAM data')
+            p.add_argument('--raw-root', help='Local rendered Replica root; default workspace/data/Replica_raw, '
+                           'with a legacy local-data fallback')
     args = parser.parse_args()
     root = local_path(args.workspace_root)
     if root in (Path('/'), Path.home(), PROJECT) or root in PROJECT.parents:

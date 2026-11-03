@@ -2,10 +2,21 @@
 set -euo pipefail
 PROJECT_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 source "${PROJECT_ROOT}/scripts/desktop_env.sh"
-export PATH=/usr/local/cuda/bin:/usr/bin:/bin:${PATH}
 export CC="${CC:-/usr/bin/gcc}"
 export CXX="${CXX:-/usr/bin/g++}"
-export CUDACXX="${CUDACXX:-/usr/local/cuda/bin/nvcc}"
+if [[ -z "${CUDACXX:-}" ]]; then
+    CUDACXX=$(command -v nvcc || true)
+    if [[ -z "${CUDACXX}" && -x /usr/local/cuda/bin/nvcc ]]; then
+        CUDACXX=/usr/local/cuda/bin/nvcc
+    fi
+fi
+if [[ -z "${CUDACXX}" ]] || ! CUDACXX=$(command -v "${CUDACXX}"); then
+    echo 'Install the CUDA toolkit or set CUDACXX to its nvcc executable.' >&2
+    exit 1
+fi
+export CUDACXX
+CUDA_ROOT=$(cd "$(dirname "${CUDACXX}")/.." && pwd)
+export PATH="$(dirname "${CUDACXX}"):/usr/bin:/bin:${PATH}"
 BUILD_DIR="${EGAS_BUILD_DIR:-${PROJECT_ROOT}/build_desktop}"
 BUILD_JOBS="${EGAS_BUILD_JOBS:-4}"
 [[ "${BUILD_JOBS}" =~ ^[1-9][0-9]*$ ]] || { echo 'EGAS_BUILD_JOBS must be positive' >&2; exit 1; }
@@ -25,7 +36,7 @@ fi
 /usr/bin/cmake -S "${PROJECT_ROOT}" -B "${BUILD_DIR}" -G 'Unix Makefiles' \
     -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
     -DCMAKE_CXX_COMPILER="${CXX}" -DCMAKE_CUDA_COMPILER="${CUDACXX}" \
-    -DCMAKE_CUDA_ARCHITECTURES=86 -DCUDAToolkit_ROOT=/usr/local/cuda \
+    -DCMAKE_CUDA_ARCHITECTURES=86 -DCUDAToolkit_ROOT="${CUDA_ROOT}" \
     -DTorch_DIR="${TORCH_PREFIX}/Torch" \
     -DCMAKE_PREFIX_PATH="${TORCH_PREFIX};${PROJECT_ROOT}/ThirdLibs/install" \
     -DGPS_SLAM_TSDF_HASH_PROFILE=medium_128k \

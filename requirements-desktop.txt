@@ -1,0 +1,7 @@
+# Python 3.12 desktop preparation, launch, summaries and image evaluation.
+# Install CUDA-enabled torch/torchvision separately; see docs/desktop_setup.md.
+numpy==2.0.1
+opencv-python==4.13.0.92
+Pillow==11.1.0
+PyYAML==6.0.3
+tqdm==4.67.1
